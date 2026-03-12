@@ -113,6 +113,7 @@ local function HandleFlask(me, p, heroPos, myPos)
             end
             f.finished = true 
             f.is_active = false
+            
         end
         return
     end
@@ -126,43 +127,59 @@ local POINT_2      = Vector(-3844, 13397, 256)
 local POINT_3      = Vector(-4166, 13088, 384)
 
 -- КООРДИНАТЫ СКАРАБЕЕВ
-local SCARAB_LEFT  = Vector(-4905, 4986, 384)
-local SCARAB_RIGHT = Vector(-3291, 5239, 384)
+local SCARAB_LEFT  = Vector(-5161, 5225, 640)
+local SCARAB_RIGHT = Vector(-3317, 5068, 640)
 
 -- === КООРДИНАТЫ БЛОК 2 (ВЕЙПОИНТЫ И ТП) ===
 local waypoints = {
-    Vector(-3684, 11993, 256),   -- WP 1
-    Vector(-2838, 11868, 384),   -- WP 2
-    Vector(-2543, 10984, 384),   -- WP 3
-    Vector(-3230, 10741, 256),   -- WP 4 (только движение)
-    Vector(-3360, 10080, 256),   -- WP 5 (только движение)
-    Vector(-4128, 9933, 256),    -- WP 6
-    Vector(-3688, 9346, 384),    -- WP 7 (ультимейт точка)
-    Vector(-4592, 9107, 384),    -- WP 8
-    Vector(-4453, 8744, 384),    -- WP 9
-    Vector(-5023, 8553, 384),    -- WP 10
-    Vector(-5352, 8120, 384),    -- WP 11 (пауза)
-    Vector(-2626, 10837, 384),   -- WP 12
-    Vector(-2274, 10151, 512),   -- WP 13
-    Vector(-1796, 9727, 512),    -- WP 14
-    Vector(-1625, 9240, 512),    -- WP 15
-    Vector(-2815, 8465, 384),    -- WP 16
-    Vector(-2815, 8225, 384)     -- WP 17 (финальный)
+    Vector(-3759, 11790, 512),   -- WP 1
+    Vector(-3124, 11028, 640),   -- WP 2
+    Vector(-2520, 11500, 640),   -- WP 3
+    Vector(-2445, 9829, 768),    -- WP 4
+    Vector(-1697, 9705, 768),    -- WP 5
+    Vector(-1614, 9251, 768),    -- WP 6
+    Vector(-2254, 8899, 768),    -- WP 7
+    Vector(-2767, 8057, 640),    -- WP 8 (точка сдачи ключа)
+    Vector(-4211, 11951, 512),   -- WP 9
+    Vector(-4507, 11308, 640),   -- WP 10
+    Vector(-4567, 10168, 512),   -- WP 11
+    Vector(-5387, 9467, 640),    -- WP 12
+    Vector(-6327, 9310, 512),    -- WP 13
+    Vector(-6257, 8206, 640)     -- WP 14 (точка ТП к боссам)
 }
 
 local GATHER_POS = Vector(-5918, 3595, 384)
 local OUTPOST_1_POS = Vector(-3381, 15787, 284)
 local WAIT_POS = Vector(-4244, 15704, 256)    
 local OUTPOST_2_POS = Vector(-6080, 3776, 412) 
+local KEY_HANDIN_WP = 8
+local BOSS_TP_WP = 14
+local BOSS_TP_POS = OUTPOST_2_POS
 
 -- === КОНФИГУРАЦИЯ ===
 local SHARD_NAME   = "item_dark_moon_shard"
 local KNIFE_NAME   = "battlemage_2"
 local RUNE_ILLUSION_NAME = "item_rune_illusions"
-local ENEMY_LIST = { ["undying"] = true, ["tank"] = true, ["npc_trap_visage"] = true }
+local ILLUSION_RUNE_TYPE = 2 -- DOTA_RUNE_ILLUSION
+local ENEMY_LIST = {
+    ["undying"] = true,
+    ["tank"] = true,
+    ["npc_trap_visage"] = true,
+    ["npc_dota_zone_5_unit_3"] = true,
+    ["npc_dota_zone_5_unit_1"] = true,
+    ["npc_dota_zone_5_unit_2"] = true,
+}
 local REFLECT_MOD = "modifier_boss_nyx_assassin_dispersion_cast"
-local BOSS_PASSIVE = "modifier_boss_nyx_assassin_passive"
 local QUEST_ITEM_NAME = "item_orb"
+local BOSS_NAMES = {
+    ["npc_dota_boss_nyx_1"] = true,
+    ["npc_dota_boss_nyx_2"] = true,
+}
+local WAYPOINT_ATTACK_TARGETS = {
+    ["npc_dota_zone_5_unit_3"] = 1,
+    ["npc_dota_zone_5_unit_1"] = 2,
+    ["npc_dota_zone_5_unit_2"] = 3,
+}
 
 -- === СОСТОЯНИЕ ===
 local lastActionTime = 0
@@ -224,6 +241,7 @@ function module.OnUpdate()
     if secondBlockStarted then
         if NPC.HasModifier(h, "modifier_teleporting") then
             if currentSecondStage == "TP_TO_WAIT" then currentSecondStage = "MOVING_TO_WAIT_POS" end
+            if currentSecondStage == "TP_TO_BOSS" then currentSecondStage = "BOSS_FIGHT" end
             if currentSecondStage == "TP_TO_FINAL" then 
                 _G.GlobalPhase = 6
                 currentSecondStage = "FINISHED" 
@@ -243,7 +261,7 @@ function module.OnUpdate()
             if distToWP < 200 then
                 Log.Write(string.format("[CLEANUP] WP %d: расстояние %.1f м", currentWP, distToWP))
             end
-            local isMovingOnly = ((currentWP == 4 and distToWP < 150) or currentWP == 5 or (currentWP == 14 and distToWP < 150) or currentWP == 15)
+            local isMovingOnly = (currentWP == KEY_HANDIN_WP or currentWP == BOSS_TP_WP)
             
             local bestTarget = nil
             local minDist = 99999
@@ -251,32 +269,16 @@ function module.OnUpdate()
             if not isMovingOnly then
                 local enemies = Entity.GetUnitsInRadius(h, (currentWP == 8 and 300 or 700), Enum.TeamType.TEAM_ENEMY)
                 for _, enemy in ipairs(enemies) do
-                    if enemy and Entity.IsAlive(enemy) and ENEMY_LIST[NPC.GetUnitName(enemy)] then 
-                        local d = (myPos - Entity.GetAbsOrigin(enemy)):Length2D()
-                        if d < minDist then
-                            minDist = d
-                            bestTarget = enemy
+                    if enemy and Entity.IsAlive(enemy) then
+                        local enemyName = NPC.GetUnitName(enemy)
+                        if ENEMY_LIST[enemyName] then
+                            local d = (myPos - Entity.GetAbsOrigin(enemy)):Length2D()
+                            if d < minDist then
+                                minDist = d
+                                bestTarget = enemy
+                            end
                         end
                     end
-                end
-            end
-
-            if targetPos == Vector(-3688, 9346, 384) and distToWP <= 70 then
-                local ult = NPC.GetAbilityByIndex(h, 5) 
-                if ult and Ability.IsReady(ult) and not ultCastDone then
-                    Log.Write("[WP 7] КАСТУЕМ УЛЬТИМЕЙТ!")
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), ult, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                    ultCastDone = true
-                    waitTimer = now
-                    return
-                end
-                if ultCastDone and now - waitTimer < 0.1 then
-                    return
-                elseif ultCastDone then
-                    currentWP = currentWP + 1
-                    ultCastDone = false
-                    waitTimer = 0
-                    return
                 end
             end
 
@@ -292,20 +294,35 @@ function module.OnUpdate()
                         lastMoveTime = now
                     end
                 else
-                    if currentWP == 11 and waitTimer == 0 then 
-                        Log.Write("[WP 11] ПАУЗА НАЧАТА (1 сек)")
-                        waitTimer = now
-                    elseif currentWP == 11 and now - waitTimer < 1.0 then 
-                    else
-                        if currentWP < #waypoints then 
-                            currentWP = currentWP + 1
-                            Log.Write(string.format("[CLEANUP] Переход на WP %d", currentWP))
-                            waitTimer = 0
-                        else 
-                            Log.Write("[CLEANUP] Все вейпоинты пройдены, переход на BOSS_FIGHT")
-                            currentSecondStage = "BOSS_FIGHT" 
-                        end
+                    if currentWP == KEY_HANDIN_WP then
+                        Log.Write("[CLEANUP] WP 8 достигнут: точка сдачи ключа")
                     end
+
+                    if currentWP == BOSS_TP_WP then
+                        Log.Write("[CLEANUP] WP 14 достигнут: телепортируемся к боссам")
+                        currentSecondStage = "TP_TO_BOSS"
+                        return
+                    end
+
+                    if currentWP < #waypoints then 
+                        currentWP = currentWP + 1
+                        Log.Write(string.format("[CLEANUP] Переход на WP %d", currentWP))
+                        waitTimer = 0
+                    else 
+                        Log.Write("[CLEANUP] Все вейпоинты пройдены, переход на BOSS_FIGHT")
+                        currentSecondStage = "BOSS_FIGHT" 
+                    end
+                end
+            end
+
+        elseif currentSecondStage == "TP_TO_BOSS" then
+            local tp = module.FindTP(h)
+            if tp and Ability.IsReady(tp) then
+                if now - lastActionTime > 2.0 then
+                    Log.Write("[TP_TO_BOSS] Кастуем ТП к боссам")
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_STOP, nil, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_POSITION, nil, BOSS_TP_POS, tp, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    lastActionTime = now
                 end
             end
 
@@ -334,18 +351,36 @@ function module.OnUpdate()
             end
 
             local enemies = Entity.GetUnitsInRadius(h, 3000, Enum.TeamType.TEAM_ENEMY)
-            local bestTarget = nil
-            local minDist = 99999
+            local bestBoss = nil
+            local minBossDist = 99999
+            local bestUnit = nil
+            local bestUnitPriority = 99999
+            local minUnitDist = 99999
 
             for _, enemy in ipairs(enemies) do
-                if enemy and Entity.IsAlive(enemy) and NPC.HasModifier(enemy, BOSS_PASSIVE) then
+                if enemy and Entity.IsAlive(enemy) then
+                    local enemyName = NPC.GetUnitName(enemy)
                     local d = (myPos - Entity.GetAbsOrigin(enemy)):Length2D()
-                    if d < minDist then
-                        minDist = d
-                        bestTarget = enemy
+
+                    if BOSS_NAMES[enemyName] then
+                        if d < minBossDist then
+                            minBossDist = d
+                            bestBoss = enemy
+                        end
+                    else
+                        local prio = WAYPOINT_ATTACK_TARGETS[enemyName]
+                        if prio then
+                            if prio < bestUnitPriority or (prio == bestUnitPriority and d < minUnitDist) then
+                                bestUnitPriority = prio
+                                minUnitDist = d
+                                bestUnit = enemy
+                            end
+                        end
                     end
                 end
             end
+
+            local bestTarget = bestBoss or bestUnit
 
             if bestTarget then
                 if NPC.HasModifier(bestTarget, REFLECT_MOD) then
@@ -474,29 +509,75 @@ function module.OnUpdate()
 
             if #myIllus < 2 then
                 local rItem = NPC.GetItem(h, RUNE_ILLUSION_NAME, true)
-                if rItem and now - lastActionTime > 0.5 then
+                if rItem and now - lastActionTime > 0.2 then
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), rItem, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     lastActionTime = now
                     return
                 end
+
                 local mapRunes = Runes.GetAll()
+                local nearestIllusionRune = nil
+                local nearestIllusionDist = 99999
                 for _, r in ipairs(mapRunes) do
-                    if now - lastActionTime > 0.5 then
-                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_PICKUP_RUNE, r, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                        lastActionTime = now
-                        return
+                    if r and Rune.GetRuneType(r) == ILLUSION_RUNE_TYPE then
+                        local rPos = Entity.GetAbsOrigin(r)
+                        if rPos then
+                            local d = (myPos - rPos):Length2D()
+                            if d < nearestIllusionDist then
+                                nearestIllusionDist = d
+                                nearestIllusionRune = r
+                            end
+                        end
                     end
                 end
+
+                if nearestIllusionRune then
+                    local rPos = Entity.GetAbsOrigin(nearestIllusionRune)
+                    if nearestIllusionDist > 250 then
+                        if now - lastMoveTime > 0.2 then
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, rPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            lastMoveTime = now
+                        end
+                    else
+                        if now - lastActionTime > 0.2 then
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_PICKUP_RUNE, nearestIllusionRune, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            lastActionTime = now
+                        end
+                    end
+                    return
+                end
+
                 local pItems = PhysicalItems.GetAll()
+                local nearestDroppedRune = nil
+                local nearestDroppedDist = 99999
                 for _, pItem in ipairs(pItems) do
                     local it = PhysicalItem.GetItem(pItem)
                     if it and Ability.GetName(it) == RUNE_ILLUSION_NAME then
-                        if now - lastActionTime > 0.3 then
-                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_PICKUP_ITEM, pItem, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                        local pPos = Entity.GetAbsOrigin(pItem) or PhysicalItem.GetPosition(pItem)
+                        if pPos then
+                            local d = (myPos - pPos):Length2D()
+                            if d < nearestDroppedDist then
+                                nearestDroppedDist = d
+                                nearestDroppedRune = pItem
+                            end
+                        end
+                    end
+                end
+
+                if nearestDroppedRune then
+                    if nearestDroppedDist > 250 then
+                        local pPos = Entity.GetAbsOrigin(nearestDroppedRune) or PhysicalItem.GetPosition(nearestDroppedRune)
+                        if pPos and now - lastMoveTime > 0.2 then
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, pPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            lastMoveTime = now
+                        end
+                    else
+                        if now - lastActionTime > 0.2 then
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_PICKUP_ITEM, nearestDroppedRune, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                             lastActionTime = now
                         end
-                        return
                     end
+                    return
                 end
             end
 
