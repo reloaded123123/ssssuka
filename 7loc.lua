@@ -1,5 +1,5 @@
 local script = {}
-
+-- пасхалка: ШАМИЛЬ ГЕЙ!
 -- === НАСТРОЙКИ И КОНСТАНТЫ ===
 script.target_names = { "npc_slardar_unit", "npc_blob", "morf", "npc_mini_blob" }
 script.BOSS_NAME = "npc_boss_slardar"
