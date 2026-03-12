@@ -131,13 +131,23 @@ local SCARAB_RIGHT = Vector(-3291, 5239, 384)
 
 -- === КООРДИНАТЫ БЛОК 2 (ВЕЙПОИНТЫ И ТП) ===
 local waypoints = {
-    Vector(-3684, 11993, 256), Vector(-2838, 11868, 384), Vector(-2543, 10984, 384),
-    Vector(-3230, 10741, 256), Vector(-3360, 10080, 256), Vector(-4128, 9933, 256),
-    Vector(-3688, 9346, 384),
-    Vector(-4592, 9107, 384), Vector(-4453, 8744, 384),
-    Vector(-5023, 8553, 384), Vector(-5352, 8120, 384), Vector(-2626, 10837, 384),
-    Vector(-2274, 10151, 512), Vector(-1796, 9727, 512), Vector(-1625, 9240, 512),
-    Vector(-2815, 8465, 384), Vector(-2815, 8225, 384)
+    Vector(-3684, 11993, 256),   -- WP 1
+    Vector(-2838, 11868, 384),   -- WP 2
+    Vector(-2543, 10984, 384),   -- WP 3
+    Vector(-3230, 10741, 256),   -- WP 4 (только движение)
+    Vector(-3360, 10080, 256),   -- WP 5 (только движение)
+    Vector(-4128, 9933, 256),    -- WP 6
+    Vector(-3688, 9346, 384),    -- WP 7 (ультимейт точка)
+    Vector(-4592, 9107, 384),    -- WP 8
+    Vector(-4453, 8744, 384),    -- WP 9
+    Vector(-5023, 8553, 384),    -- WP 10
+    Vector(-5352, 8120, 384),    -- WP 11 (пауза)
+    Vector(-2626, 10837, 384),   -- WP 12
+    Vector(-2274, 10151, 512),   -- WP 13
+    Vector(-1796, 9727, 512),    -- WP 14
+    Vector(-1625, 9240, 512),    -- WP 15
+    Vector(-2815, 8465, 384),    -- WP 16
+    Vector(-2815, 8225, 384)     -- WP 17 (финальный)
 }
 
 local GATHER_POS = Vector(-5918, 3595, 384)
@@ -223,9 +233,16 @@ function module.OnUpdate()
 
         if currentSecondStage == "CLEANUP" then
             local targetPos = waypoints[currentWP]
-            if not targetPos then currentSecondStage = "BOSS_FIGHT"; return end
+            if not targetPos then 
+                Log.Write("[БЛОК 2] CLEANUP завершен, переход на BOSS_FIGHT")
+                currentSecondStage = "BOSS_FIGHT"
+                return 
+            end
             
             local distToWP = (myPos - targetPos):Length2D()
+            if distToWP < 200 then
+                Log.Write(string.format("[CLEANUP] WP %d: расстояние %.1f м", currentWP, distToWP))
+            end
             local isMovingOnly = ((currentWP == 4 and distToWP < 150) or currentWP == 5 or (currentWP == 14 and distToWP < 150) or currentWP == 15)
             
             local bestTarget = nil
@@ -247,6 +264,7 @@ function module.OnUpdate()
             if targetPos == Vector(-3688, 9346, 384) and distToWP <= 70 then
                 local ult = NPC.GetAbilityByIndex(h, 5) 
                 if ult and Ability.IsReady(ult) and not ultCastDone then
+                    Log.Write("[WP 7] КАСТУЕМ УЛЬТИМЕЙТ!")
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), ult, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     ultCastDone = true
                     waitTimer = now
@@ -274,16 +292,25 @@ function module.OnUpdate()
                         lastMoveTime = now
                     end
                 else
-                    if currentWP == 11 and waitTimer == 0 then waitTimer = now
+                    if currentWP == 11 and waitTimer == 0 then 
+                        Log.Write("[WP 11] ПАУЗА НАЧАТА (1 сек)")
+                        waitTimer = now
                     elseif currentWP == 11 and now - waitTimer < 1.0 then 
                     else
-                        if currentWP < #waypoints then currentWP = currentWP + 1; waitTimer = 0
-                        else currentSecondStage = "BOSS_FIGHT" end
+                        if currentWP < #waypoints then 
+                            currentWP = currentWP + 1
+                            Log.Write(string.format("[CLEANUP] Переход на WP %d", currentWP))
+                            waitTimer = 0
+                        else 
+                            Log.Write("[CLEANUP] Все вейпоинты пройдены, переход на BOSS_FIGHT")
+                            currentSecondStage = "BOSS_FIGHT" 
+                        end
                     end
                 end
             end
 
         elseif currentSecondStage == "BOSS_FIGHT" then
+            Log.Write("[BOSS_FIGHT] Этап боса активирован")
             local hasOrb = module.CheckInventoryForOrb(h)
             
             local droppedItems = PhysicalItems.GetAll()
@@ -353,16 +380,22 @@ function module.OnUpdate()
             end
 
         elseif currentSecondStage == "GO_TO_GATHER" then
-            if (myPos - GATHER_POS):Length2D() > 100 then
+            local distToGather = (myPos - GATHER_POS):Length2D()
+            if distToGather > 100 then
+                if distToGather < 500 then
+                    Log.Write(string.format("[GO_TO_GATHER] Расстояние: %.1f м", distToGather))
+                end
                 if now - lastMoveTime > 0.3 then
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, GATHER_POS, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     lastMoveTime = now
                 end
             else
+                Log.Write("[GO_TO_GATHER] Достигли точки, готово к телепортации")
                 currentSecondStage = "TP_TO_WAIT"
             end
 
         elseif currentSecondStage == "TP_TO_WAIT" then
+            Log.Write("[TP_TO_WAIT] Ищем ТП и готовимся выходить")
             local tp = module.FindTP(h)
             if tp and Ability.IsReady(tp) then
                 if now - lastActionTime > 2.0 then
@@ -373,18 +406,21 @@ function module.OnUpdate()
             end
 
         elseif currentSecondStage == "MOVING_TO_WAIT_POS" then
+            local distToWait = (myPos - WAIT_POS):Length2D()
             if (myPos - GATHER_POS):Length2D() > 2000 then
-                if (myPos - WAIT_POS):Length2D() > 150 then
+                if distToWait > 150 then
                     if now - lastMoveTime > 0.5 then
                         Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, WAIT_POS, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                         lastMoveTime = now
                     end
                 else
+                    Log.Write("[MOVING_TO_WAIT_POS] Достигли WAIT_POS, ожидаем CD")
                     currentSecondStage = "WAITING_FOR_CD"
                 end
             end
 
         elseif currentSecondStage == "WAITING_FOR_CD" then
+            Log.Write("[WAITING_FOR_CD] Ждём готовности ТП для финального завершения")
             local tp = module.FindTP(h)
             if tp and Ability.IsReady(tp) then currentSecondStage = "TP_TO_FINAL" end
 
@@ -392,6 +428,7 @@ function module.OnUpdate()
             local tp = module.FindTP(h)
             if tp and Ability.IsReady(tp) then
                 if now - lastActionTime > 2.0 then
+                    Log.Write("[TP_TO_FINAL] ФИНАЛЬНАЯ ТЕЛЕПОРТАЦИЯ! Скрипт завершен!")
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_STOP, nil, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_POSITION, nil, OUTPOST_2_POS, tp, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     lastActionTime = now
