@@ -300,6 +300,7 @@ function module.OnUpdate()
 
                     if currentWP == BOSS_TP_WP then
                         Log.Write("[CLEANUP] WP 14 достигнут: телепортируемся к боссам")
+                        currentWP = currentWP + 1
                         currentSecondStage = "TP_TO_BOSS"
                         return
                     end
@@ -316,6 +317,12 @@ function module.OnUpdate()
             end
 
         elseif currentSecondStage == "TP_TO_BOSS" then
+            -- Fallback: если уже оказались в зоне боссов, сразу продолжаем боевой этап.
+            if (myPos - BOSS_TP_POS):Length2D() < 1600 then
+                currentSecondStage = "BOSS_FIGHT"
+                return
+            end
+
             local tp = module.FindTP(h)
             if tp and Ability.IsReady(tp) then
                 if now - lastActionTime > 2.0 then
