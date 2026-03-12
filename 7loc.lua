@@ -1,13 +1,15 @@
 local script = {}
--- пасхалка: ШАМИЛЬ ГЕЙ!
+
 -- === НАСТРОЙКИ И КОНСТАНТЫ ===
-script.target_names = { "npc_dota_zone_6_unit_3", "npc_dota_zone_6_unit_1", "npc_dota_zone_6_unit_2", "npc_dota_zone_6_unit_4" }
+script.target_names = { "npc_dota_zone_6_unit_3", "npc_dota_zone_6_unit_3", "npc_dota_zone_6_unit_1", "npc_dota_zone_6_unit_2", "npc_dota_zone_6_unit_4" }
 script.BOSS_NAME = "npc_dota_boss_slardar"
 script.KNIFE_NAME = "battlemage"
 script.BOSS_SKILL_NAME = "torrential_waters"
 script.item_to_pick = "item_naga_stone"
 script.BOSS_SOUL_NAME = "item_boss_soul"
 script.MOON_SHARD_NAME = "item_moon_shard"
+script.WAYPOINT_REACH_RADIUS = 90
+script.PATH_COMBAT_RADIUS = 600
 
 script.START_POS = Vector(-5766, 3272, 384)
 script.OUTPOST_2_POS = Vector(-3772, 3677, 384) 
@@ -49,6 +51,8 @@ script.state = "START_BUYING"
 script.currentWP = 1
 script.lastActionTime = 0
 script.lastMoveTime = 0
+script.lastPickupTime = 0
+script.lastAbilityTime = 0
 script.purchaseCount = 0
 script.setupDone = false
 script.item_to_return = nil
@@ -105,9 +109,9 @@ function script.UseThirdAbility(hero, player, now)
     local abil = NPC.GetAbilityByIndex(hero, 2)
     if abil then
         if Ability.IsReady(abil) and Ability.IsCastable(abil, NPC.GetMana(hero)) then
-            if now - script.lastActionTime > 0.1 then
+            if now - script.lastAbilityTime > 0.15 then
                 Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), abil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
-                script.lastActionTime = now
+                script.lastAbilityTime = now
                 return true
             end
         end
@@ -118,10 +122,7 @@ end
 -- === ОСНОВНАЯ ЛОГИКА ОБНОВЛЕНИЯ ===
 
 function script.OnUpdate()
-    if _G.GlobalPhase ~= 6 then 
-        return 
-    end
-
+   
     local myHero = Heroes.GetLocal()
     if not myHero or not Entity.IsAlive(myHero) then 
         return 
@@ -343,12 +344,16 @@ function script.OnUpdate()
     -- БЛОК 4: ФАРМ И ПЕРЕДВИЖЕНИЕ ПО КАРТЕ
     if script.state == "FARMING" then
         
-        -- Проверка на застревание
+        -- Проверка на застревание: не пропускаем вейпоинт, а переподаем команду на текущий
         if (myPos - script.lastPos):Length2D() < 15 then
             script.stuckTicks = script.stuckTicks + 1
             if script.stuckTicks > 40 then
-                script.currentWP = script.currentWP + 1
-                if script.currentWP > #script.waypoints then script.currentWP = 1 end
+                local wp = script.waypoints[script.currentWP]
+                if wp and now - script.lastMoveTime > 0.25 then
+                    Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_STOP, nil, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
+                    Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, wp, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
+                    script.lastMoveTime = now
+                end
                 script.stuckTicks = 0
             end
         else 
@@ -365,10 +370,10 @@ function script.OnUpdate()
                     local itEnt = PhysicalItem.GetItem(pi)
                     if itEnt and Ability.GetName(itEnt) == script.item_to_pick then
                         local dist = (Entity.GetAbsOrigin(pi) - myPos):Length2D()
-                        if dist < 600 then
-                            if now - script.lastActionTime > 0.6 then
+                        if dist < 900 then
+                            if now - script.lastPickupTime > 0.25 then
                                 Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_PICKUP_ITEM, pi, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
-                                script.lastActionTime = now
+                                script.lastPickupTime = now
                                 -- Важно: не возвращаем return, чтобы бот продолжал логику боя
                             end
                         end
@@ -419,10 +424,26 @@ end
 
 function script.DoCombatLogic(hero, player, now)
     local myPos = Entity.GetAbsOrigin(hero)
+    local wp = script.waypoints[script.currentWP]
+    if not wp then return end
+
+    local distToWp = (myPos - wp):Length2D()
+    if distToWp < script.WAYPOINT_REACH_RADIUS then
+        script.currentWP = script.currentWP + 1
+        if script.currentWP > #script.waypoints then
+            script.currentWP = 1
+        end
+        wp = script.waypoints[script.currentWP]
+        if not wp then return end
+        distToWp = (myPos - wp):Length2D()
+    end
+
     local enemies = Entity.GetUnitsInRadius(hero, 900, Enum.TeamType.TEAM_ENEMY)
     local target = nil
     local count500 = 0
     local closestAny = nil
+    local closestInPathRange = nil
+    local minPathDist = 9999
     local minDist = 9999
     
     for i = 1, #enemies do
@@ -436,37 +457,56 @@ function script.DoCombatLogic(hero, player, now)
                 minDist = dist 
                 closestAny = e 
             end
-        end
-    end
-
-    -- Если врагов слишком много, фокусим ближайшего
-    if count500 >= 8 and closestAny then 
-        target = closestAny
-    else
-        -- Иначе ищем цели по списку приоритетов
-        local hasMiss = NPC.HasModifier(hero, "modifier_blob_die_spawn_effect")
-        if not hasMiss then
-            for i = 1, #enemies do
-                local e = enemies[i]
-                if e and Entity.IsAlive(e) then
-                    local name = NPC.GetUnitName(e)
-                    local isValid = false
-                    for j = 1, #script.target_names do
-                        if name == script.target_names[j] then
-                            isValid = true
-                            break
-                        end
-                    end
-                    if isValid then
-                        target = e
-                        break
-                    end
-                end
+            if dist <= script.PATH_COMBAT_RADIUS and dist < minPathDist then
+                minPathDist = dist
+                closestInPathRange = e
             end
         end
     end
 
-    -- Атака цели
+    -- Если врагов слишком много, фокусим ближайшего
+    if count500 >= 8 and closestInPathRange then 
+        target = closestInPathRange
+    else
+        -- Иначе ищем цели по списку приоритетов в радиусе боя по пути
+        local bestPriorityTarget = nil
+        local bestPriorityIndex = 999
+        local bestPriorityDist = 99999
+
+        for i = 1, #enemies do
+            local e = enemies[i]
+            if e and Entity.IsAlive(e) then
+                local dist = (Entity.GetAbsOrigin(e) - myPos):Length2D()
+                if dist <= script.PATH_COMBAT_RADIUS then
+                local name = NPC.GetUnitName(e)
+                for j = 1, #script.target_names do
+                    if name == script.target_names[j] then
+                        if j < bestPriorityIndex or (j == bestPriorityIndex and dist < bestPriorityDist) then
+                            bestPriorityIndex = j
+                            bestPriorityDist = dist
+                            bestPriorityTarget = e
+                        end
+                        break
+                    end
+                end
+                end
+            end
+        end
+
+        target = bestPriorityTarget
+    end
+
+    if not target and closestInPathRange then
+        target = closestInPathRange
+    end
+
+    -- Всегда держим движение к текущему вейпоинту, чтобы не отклоняться от маршрута
+    if now - script.lastMoveTime > 0.35 then
+        Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, wp, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
+        script.lastMoveTime = now
+    end
+
+    -- Атака цели в радиусе пути
     if target then
         script.UseThirdAbility(hero, player, now)
         
@@ -476,26 +516,12 @@ function script.DoCombatLogic(hero, player, now)
             Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), kn, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
         end
 
-        if now - script.lastActionTime > 0.6 then
+        if now - script.lastActionTime > 0.45 then
             Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, target, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
             script.lastActionTime = now
         end
     else
-        -- Если целей нет — идем по маршруту
-        local wp = script.waypoints[script.currentWP]
-        local distToWp = (myPos - wp):Length2D()
-        
-        if distToWp < 200 then
-            script.currentWP = script.currentWP + 1
-            if script.currentWP > #script.waypoints then 
-                script.currentWP = 1 
-            end
-        end
-        
-        if now - script.lastMoveTime > 0.7 then
-            Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, wp, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
-            script.lastMoveTime = now
-        end
+        -- Врагов рядом по пути нет: просто продолжаем движение к вейпоинту
     end
 end
 
