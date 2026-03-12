@@ -1,8 +1,8 @@
 local script = {}
 -- пасхалка: ШАМИЛЬ ГЕЙ!
 -- === НАСТРОЙКИ И КОНСТАНТЫ ===
-script.target_names = { "npc_slardar_unit", "npc_blob", "morf", "npc_mini_blob" }
-script.BOSS_NAME = "npc_boss_slardar"
+script.target_names = { "npc_dota_zone_6_unit_3", "npc_dota_zone_6_unit_1", "npc_dota_zone_6_unit_2", "npc_dota_zone_6_unit_4" }
+script.BOSS_NAME = "npc_dota_boss_slardar"
 script.KNIFE_NAME = "battlemage"
 script.BOSS_SKILL_NAME = "torrential_waters"
 script.item_to_pick = "item_naga_stone"
@@ -16,15 +16,32 @@ script.BOSS_ENT_POS = Vector(-4640, -5892, 128)
 script.BOSS_FINAL_POS = Vector(-4684, -6619, 128)
 
 script.waypoints = {
-    Vector(-4825, 2271, 128), Vector(-5335, 1111, 128), Vector(-4410, 1232, 128),
-    Vector(-4144, 587, 128), Vector(-2475, 1337, 256), Vector(-1829, 374, 128), 
-    Vector(-1759, -565, 172), Vector(-1596, -1186, 308), Vector(-2473, -691, 172), 
-    Vector(-1247, -2235, 384), Vector(-2130, -2409, 384), Vector(-2792, -2372, 384), 
-    Vector(-3373, -1354, 128), Vector(-4492, -544, 128), Vector(-5023, -32, 128), 
-    Vector(-5151, -1080, 256), Vector(-5649, -1669, 256), Vector(-4931, -2468, 384), 
-    Vector(-5435, -3196, 262), Vector(-4262, -2934, 256), Vector(-3536, -3384, 412), 
-    Vector(-3744, -4256, 512), Vector(-4363, -4592, 384), Vector(-2610, -4008, 512), 
-    Vector(-1567, -4053, 256), Vector(-2140, -4914, 128)
+    Vector(-5068, 1863, 384),
+    Vector(-5402, 1278, 384),
+    Vector(-4456, 947, 384),
+    Vector(-3480, 1127, 384),
+    Vector(-2430, 957, 384),
+    Vector(-1957, 155, 384),
+    Vector(-2402, -585, 384),
+    Vector(-1643, -1236, 512),
+    Vector(-2033, -1598, 392),
+    Vector(-3038, -1515, 384),
+    Vector(-3652, -1056, 384),
+    Vector(-3981, -347, 384),
+    Vector(-4764, -813, 384),
+    Vector(-5859, -1176, 384),
+    Vector(-5529, -2163, 384),
+    Vector(-4851, -1929, 384),
+    Vector(-5468, -3014, 611),
+    Vector(-5306, -3111, 640),
+    Vector(-4837, -3404, 640),
+    Vector(-4248, -2928, 384),
+    Vector(-3408, -2774, 512),
+    Vector(-2719, -3401, 384),
+    Vector(-2223, -4493, 495),
+    Vector(-2664, -5358, 384),
+    Vector(-3812, -5658, 384),
+    Vector(-4713, -7116, 384)
 }
 
 -- === ПЕРЕМЕННЫЕ СОСТОЯНИЯ ===
@@ -483,5 +500,3 @@ function script.DoCombatLogic(hero, player, now)
 end
 
 return script
-7location.lua
-21 кб
