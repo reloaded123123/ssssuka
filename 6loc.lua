@@ -111,7 +111,7 @@ local function HandleFlask(me, p, heroPos, myPos)
                     Player.PrepareUnitOrders(p, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, f.original_slot, Vector(0,0,0), item_in_slot_0, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, me)
                 end
             end
-            f.finished = true --авыds
+            f.finished = true 
             f.is_active = false
         end
         return
