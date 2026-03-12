@@ -500,12 +500,6 @@ function script.DoCombatLogic(hero, player, now)
         target = closestInPathRange
     end
 
-    -- Всегда держим движение к текущему вейпоинту, чтобы не отклоняться от маршрута
-    if now - script.lastMoveTime > 0.35 then
-        Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, wp, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
-        script.lastMoveTime = now
-    end
-
     -- Атака цели в радиусе пути
     if target then
         script.UseThirdAbility(hero, player, now)
@@ -516,12 +510,16 @@ function script.DoCombatLogic(hero, player, now)
             Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), kn, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
         end
 
-        if now - script.lastActionTime > 0.45 then
+        if now - script.lastActionTime > 0.35 then
             Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, target, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
             script.lastActionTime = now
         end
     else
-        -- Врагов рядом по пути нет: просто продолжаем движение к вейпоинту
+        -- Врагов рядом по пути нет: продолжаем движение к вейпоинту
+        if now - script.lastMoveTime > 0.35 then
+            Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, wp, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
+            script.lastMoveTime = now
+        end
     end
 end
 
