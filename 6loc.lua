@@ -201,6 +201,9 @@ local currentSecondStage = "CLEANUP"
 local ultCastDone = false
 local checkedSpots = { left = false, right = false }
 local prevStage = -1
+local bossTpIssued = false
+local bossTpCastTime = 0
+local bossTpStartPos = nil
 
 -- === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 
@@ -239,6 +242,19 @@ function module.OnUpdate()
     if puzzleStage == 4 then secondBlockStarted = true end
 
     if secondBlockStarted then
+        -- Если уже на арене и видим боссов, принудительно переходим в боевой этап.
+        if currentSecondStage == "CLEANUP" or currentSecondStage == "TP_TO_BOSS" then
+            local nearEnemies = Entity.GetUnitsInRadius(h, 2800, Enum.TeamType.TEAM_ENEMY)
+            for _, enemy in ipairs(nearEnemies) do
+                if enemy and Entity.IsAlive(enemy) and BOSS_NAMES[NPC.GetUnitName(enemy)] then
+                    currentSecondStage = "BOSS_FIGHT"
+                    currentWP = #waypoints + 1
+                    bossTpIssued = true
+                    break
+                end
+            end
+        end
+
         if NPC.HasModifier(h, "modifier_teleporting") then
             if currentSecondStage == "TP_TO_WAIT" then currentSecondStage = "MOVING_TO_WAIT_POS" end
             if currentSecondStage == "TP_TO_BOSS" then currentSecondStage = "BOSS_FIGHT" end
@@ -301,6 +317,9 @@ function module.OnUpdate()
                     if currentWP == BOSS_TP_WP then
                         Log.Write("[CLEANUP] WP 14 достигнут: телепортируемся к боссам")
                         currentWP = currentWP + 1
+                        bossTpIssued = false
+                        bossTpCastTime = 0
+                        bossTpStartPos = Vector(myPos.x, myPos.y, myPos.z)
                         currentSecondStage = "TP_TO_BOSS"
                         return
                     end
@@ -317,18 +336,29 @@ function module.OnUpdate()
             end
 
         elseif currentSecondStage == "TP_TO_BOSS" then
-            -- Fallback: если уже оказались в зоне боссов, сразу продолжаем боевой этап.
+            -- Fallback: если телепорт уже был нажат и мы сместились/дошли до зоны боссов, переходим в бой.
+            if bossTpIssued then
+                local movedAfterCast = bossTpStartPos and (myPos - bossTpStartPos):Length2D() > 1500
+                local nearBossArea = ((myPos - SCARAB_LEFT):Length2D() < 2200) or ((myPos - SCARAB_RIGHT):Length2D() < 2200)
+                if movedAfterCast or nearBossArea or (now - bossTpCastTime > 4.0) then
+                    currentSecondStage = "BOSS_FIGHT"
+                    return
+                end
+            end
+
             if (myPos - BOSS_TP_POS):Length2D() < 1600 then
                 currentSecondStage = "BOSS_FIGHT"
                 return
             end
 
             local tp = module.FindTP(h)
-            if tp and Ability.IsReady(tp) then
+            if not bossTpIssued and tp and Ability.IsReady(tp) then
                 if now - lastActionTime > 2.0 then
                     Log.Write("[TP_TO_BOSS] Кастуем ТП к боссам")
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_STOP, nil, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_POSITION, nil, BOSS_TP_POS, tp, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    bossTpIssued = true
+                    bossTpCastTime = now
                     lastActionTime = now
                 end
             end
@@ -363,6 +393,8 @@ function module.OnUpdate()
             local bestUnit = nil
             local bestUnitPriority = 99999
             local minUnitDist = 99999
+            local reflectBoss = nil
+            local reflectBossDist = 99999
 
             for _, enemy in ipairs(enemies) do
                 if enemy and Entity.IsAlive(enemy) then
@@ -373,6 +405,11 @@ function module.OnUpdate()
                         if d < minBossDist then
                             minBossDist = d
                             bestBoss = enemy
+                        end
+
+                        if NPC.HasModifier(enemy, REFLECT_MOD) and d < reflectBossDist then
+                            reflectBossDist = d
+                            reflectBoss = enemy
                         end
                     else
                         local prio = WAYPOINT_ATTACK_TARGETS[enemyName]
@@ -389,24 +426,25 @@ function module.OnUpdate()
 
             local bestTarget = bestBoss or bestUnit
 
+            if reflectBoss then
+                if now - lastMoveTime > 0.3 then
+                    local runPos = myPos + (myPos - Entity.GetAbsOrigin(reflectBoss)):Normalized() * 500
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, runPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    lastMoveTime = now
+                end
+                return
+            end
+
             if bestTarget then
-                if NPC.HasModifier(bestTarget, REFLECT_MOD) then
-                    if now - lastMoveTime > 0.3 then
-                        local runPos = myPos + (myPos - Entity.GetAbsOrigin(bestTarget)):Normalized() * 500
-                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, runPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                        lastMoveTime = now
-                    end
-                else
-                    local knife = NPC.GetItem(h, KNIFE_NAME, true) or NPC.GetItem(h, "item_" .. KNIFE_NAME, true)
-                    if knife and Ability.IsReady(knife) and now - lastItemTime > 0.4 then
-                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), knife, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                        lastItemTime = now
-                    end
-                    
-                    if now - lastAttackTime > 0.5 then
-                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, bestTarget, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                        lastAttackTime = now
-                    end
+                local knife = NPC.GetItem(h, KNIFE_NAME, true) or NPC.GetItem(h, "item_" .. KNIFE_NAME, true)
+                if knife and Ability.IsReady(knife) and now - lastItemTime > 0.4 then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), knife, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    lastItemTime = now
+                end
+                
+                if now - lastAttackTime > 0.5 then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, bestTarget, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    lastAttackTime = now
                 end
             else
                 local nextCheck = nil
