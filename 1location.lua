@@ -1,5 +1,5 @@
 local script = {}
-
+--fds
 -- Настройки целей
 local QUEST_UNIT = "npc_dota_zone_1_unit_quest"
 local ITEM_TO_PICK = "item_quelling_blade" -- Название предмета для поиска
