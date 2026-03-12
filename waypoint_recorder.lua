@@ -1,97 +1,42 @@
-local module = {}
-
--- === КОНФИГУРАЦИЯ ===
-local RECORD_KEY = Enum.ButtonCode.KEY_V      -- Нажми V чтобы записать вейпоинт
-local PRINT_KEY = Enum.ButtonCode.KEY_P       -- Нажми P чтобы вывести все вейпоинты
-local CLEAR_KEY = Enum.ButtonCode.KEY_C       -- Нажми C чтобы очистить список
-
--- === СОСТОЯНИЕ ===
+-- WAYPOINT RECORDER - АВТОМАТИЧЕСКИЙ РЕЖИМ
 local waypoints = {}
-local recordedCount = 0
+local lastRecordTime = 0
+local RECORD_INTERVAL = 1.0  -- Записывать каждую 1 секунду
+local lastPos = nil
 
--- === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
-
-local function PrintAllWaypoints()
-    if #waypoints == 0 then
-        Log.Write("⚠️ Вейпоинты не записаны!")
-        return
-    end
-    
-    Log.Write("=" * 60)
-    Log.Write("📍 ВСЕ ЗАПИСАННЫЕ ВЕЙПОИНТЫ (" .. #waypoints .. " штук)")
-    Log.Write("=" * 60)
-    
-    local result = "local waypoints = {"
-    for i, wp in ipairs(waypoints) do
-        local line = string.format("    Vector(%.0f, %.0f, %.0f),   -- WP %d", wp.x, wp.y, wp.z, i)
-        Log.Write(line)
-        result = result .. "\n" .. line
-    end
-    result = result .. "\n}"
-    
-    Log.Write("=" * 60)
-    Log.Write("✅ Повтор для копирования выше ↑")
-    Log.Write("=" * 60)
-end
-
-local function ClearWaypoints()
-    waypoints = {}
-    recordedCount = 0
-    Log.Write("🗑️ Список вейпоинтов очищен!")
-end
-
-local function RecordWaypoint(pos)
-    if not pos then
-        Log.Write("❌ Позиция не найдена!")
-        return
-    end
-    
-    recordedCount = recordedCount + 1
-    table.insert(waypoints, Vector(pos.x, pos.y, pos.z))
-    
-    Log.Write(string.format("✅ WP %d записан: Vector(%.0f, %.0f, %.0f)", 
-        recordedCount, pos.x, pos.y, pos.z))
-end
-
--- === ГЛАВНАЯ ФУНКЦИЯ ===
-
-function module.OnUpdate()
+local function OnUpdate()
     local h = Heroes.GetLocal()
     if not h or not Entity.IsAlive(h) then return end
     
-    local myPos = Entity.GetAbsOrigin(h)
+    local now = os.clock()
+    local pos = Entity.GetAbsOrigin(h)
+    
+    -- Записываем вейпоинт каждую 1 секунду
+    if now - lastRecordTime >= RECORD_INTERVAL then
+        local x = math.floor(pos.x + 0.5)
+        local y = math.floor(pos.y + 0.5)
+        local z = math.floor(pos.z + 0.5)
+        table.insert(waypoints, {x = x, y = y, z = z})
+        Log.Write(string.format("📍 WP %d: Vector(%d, %d, %d)", #waypoints, x, y, z))
+        lastRecordTime = now
+    end
+    
+    lastPos = pos
 end
 
-function module.OnKeyEvent(data)
-    local h = Heroes.GetLocal()
-    if not h then return false end
-    
-    local myPos = Entity.GetAbsOrigin(h)
-    
-    -- ЗАПИСЬ ВЕЙПОИНТА
-    if data.key == RECORD_KEY and data.event == Enum.EKeyEvent.KeyDown then
-        RecordWaypoint(myPos)
-        return true
+local function OnGameEnd()
+    if #waypoints > 0 then
+        Log.Write("\n\n=== ПОЛНЫЙ МАРШРУТ ===")
+        Log.Write("local waypoints = {")
+        for i, wp in ipairs(waypoints) do
+            Log.Write(string.format("    Vector(%d, %d, %d),  -- WP %d", wp.x, wp.y, wp.z, i))
+        end
+        Log.Write("}")
+        Log.Write("=== КОНЕЦ ===\n\n")
     end
-    
-    -- ВЫВОД ВСЕХ ВЕЙПОИНТОВ
-    if data.key == PRINT_KEY and data.event == Enum.EKeyEvent.KeyDown then
-        PrintAllWaypoints()
-        return true
-    end
-    
-    -- ОЧИСТКА СПИСКА
-    if data.key == CLEAR_KEY and data.event == Enum.EKeyEvent.KeyDown then
-        ClearWaypoints()
-        return true
-    end
-    
-    return false
 end
-
--- === ВОЗВРАТ МОДУЛЯ ===
 
 return {
-    OnUpdate = module.OnUpdate,
-    OnKeyEvent = module.OnKeyEvent
+    OnUpdate = OnUpdate,
+    OnGameEnd = OnGameEnd
 }
