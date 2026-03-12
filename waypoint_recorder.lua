@@ -1,27 +1,33 @@
--- WAYPOINT RECORDER - АВТОМАТИЧЕСКИЙ РЕЖИМ
+-- WAYPOINT RECORDER - ЗАПИСЬ ПО БИНДУ
 local waypoints = {}
-local lastRecordTime = 0
-local RECORD_INTERVAL = 1.0  -- Записывать каждую 1 секунду
-local lastPos = nil
+local RECORD_KEY = Enum.ButtonCode.KEY_F6
+local shownHint = false
+
+local function RecordCurrentPosition(hero)
+    local pos = Entity.GetAbsOrigin(hero)
+    local x = math.floor(pos.x + 0.5)
+    local y = math.floor(pos.y + 0.5)
+    local z = math.floor(pos.z + 0.5)
+
+    table.insert(waypoints, { x = x, y = y, z = z })
+    Log.Write(string.format("WP %d: Vector(%d, %d, %d)", #waypoints, x, y, z))
+end
 
 local function OnUpdate()
     local h = Heroes.GetLocal()
     if not h or not Entity.IsAlive(h) then return end
-    
-    local now = os.clock()
-    local pos = Entity.GetAbsOrigin(h)
-    
-    -- Записываем вейпоинт каждую 1 секунду
-    if now - lastRecordTime >= RECORD_INTERVAL then
-        local x = math.floor(pos.x + 0.5)
-        local y = math.floor(pos.y + 0.5)
-        local z = math.floor(pos.z + 0.5)
-        table.insert(waypoints, {x = x, y = y, z = z})
-        Log.Write(string.format("📍 WP %d: Vector(%d, %d, %d)", #waypoints, x, y, z))
-        lastRecordTime = now
+
+    if not shownHint then
+        Log.Write("Waypoint Recorder: нажми F6, чтобы записать текущую позицию героя")
+        shownHint = true
     end
-    
-    lastPos = pos
+
+    if Input.IsInputCaptured() then return end
+
+    -- Сработает один раз за нажатие клавиши
+    if Input.IsKeyDownOnce(RECORD_KEY) then
+        RecordCurrentPosition(h)
+    end
 end
 
 local function OnGameEnd()
@@ -33,6 +39,8 @@ local function OnGameEnd()
         end
         Log.Write("}")
         Log.Write("=== КОНЕЦ ===\n\n")
+    else
+        Log.Write("Waypoint Recorder: маршрут пуст, ни одной точки не записано")
     end
 end
 
