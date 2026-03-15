@@ -1,5 +1,5 @@
 local script = {}
-
+--сосал?
 -- === НАСТРОЙКИ И КОНСТАНТЫ ===
 script.target_names = { "npc_dota_zone_6_unit_3", "npc_dota_zone_6_unit_3", "npc_dota_zone_6_unit_1", "npc_dota_zone_6_unit_2", "npc_dota_zone_6_unit_4" }
 script.BOSS_NAME = "npc_dota_boss_slardar"
