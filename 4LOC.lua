@@ -75,6 +75,12 @@ local was_used = false
 local huntBoss = false 
 local pickingHeart = false
 local onPlateStep = false
+local cutterSwapActive = false
+local cutterSwapSourceSlot = -1
+local cutterSwapTargetSlot = -1
+local cutterSwapLastAction = 0
+local plateCutterReady = false
+local plateNeedRestore = false
 
 local function Hero() 
     return Heroes.GetLocal() 
@@ -99,6 +105,82 @@ local function IsProtected(itemName)
         end
     end
     return false
+end
+
+local function FindCutterItem(hero)
+    if not hero then return nil, -1 end
+    for i = 0, 8 do
+        local it = NPC.GetItemByIndex(hero, i)
+        if it then
+            local name = Ability.GetName(it):lower()
+            if name:find("quelling") or name:find("bfury") or name:find("battlefury") then
+                return it, i
+            end
+        end
+    end
+    return nil, -1
+end
+
+local function EnsureCutterInActiveSlot(hero, player, now)
+    if cutterSwapActive then
+        local inActive = NPC.GetItemByIndex(hero, cutterSwapTargetSlot)
+        if inActive then
+            local n = Ability.GetName(inActive):lower()
+            if n:find("quelling") or n:find("bfury") or n:find("battlefury") then
+                return inActive, true
+            end
+        end
+    end
+
+    local cutter, slot = FindCutterItem(hero)
+    if not cutter then return nil, false end
+
+    if slot <= 5 then
+        return cutter, true
+    end
+
+    if now - cutterSwapLastAction < 0.35 then
+        return nil, false
+    end
+
+    local targetSlot = -1
+    for i = 0, 5 do
+        if not NPC.GetItemByIndex(hero, i) then
+            targetSlot = i
+            break
+        end
+    end
+    if targetSlot == -1 then
+        targetSlot = 0
+    end
+
+    Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, targetSlot, Vector(0,0,0), cutter, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
+    cutterSwapActive = true
+    cutterSwapSourceSlot = slot
+    cutterSwapTargetSlot = targetSlot
+    cutterSwapLastAction = now
+    return nil, false
+end
+
+local function RestoreCutterAfterCut(hero, player, now)
+    if not cutterSwapActive then return false end
+    if now - cutterSwapLastAction < 0.35 then return true end
+
+    local displaced = NPC.GetItemByIndex(hero, cutterSwapSourceSlot)
+    if displaced then
+        Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, cutterSwapTargetSlot, Vector(0,0,0), displaced, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
+    else
+        local cutterNow = NPC.GetItemByIndex(hero, cutterSwapTargetSlot)
+        if cutterNow then
+            Player.PrepareUnitOrders(player, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, cutterSwapSourceSlot, Vector(0,0,0), cutterNow, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, hero)
+        end
+    end
+
+    cutterSwapLastAction = now
+    cutterSwapActive = false
+    cutterSwapSourceSlot = -1
+    cutterSwapTargetSlot = -1
+    return true
 end
 
 -- Проверка, является ли NPC таргетом из списка
@@ -339,15 +421,25 @@ function script.OnUpdate()
             local distToPlate = (myPos - PLATE_POS):Length2D()
             if distToPlate > 50 then
                 if now - lastMove >= 0.15 then 
+                    -- Достаем топор только когда почти подошли к плите.
+                    if distToPlate <= 320 and not plateCutterReady then
+                        local cutter, cutterReady = EnsureCutterInActiveSlot(h, pMe, now)
+                        if not cutterReady then
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, PLATE_POS, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            lastMove = now
+                            return
+                        end
+                        plateCutterReady = true
+                        if cutterSwapActive then
+                            plateNeedRestore = true
+                        end
+                    end
+
                     local cutter = nil
-                    for i = 0, 8 do
-                        local it = NPC.GetItemByIndex(h, i)
-                        if it then
-                            local name = Ability.GetName(it):lower()
-                            if name:find("quelling") or name:find("bfury") or name:find("battlefury") then
-                                cutter = it
-                                break
-                            end
+                    if plateCutterReady then
+                        local c, cSlot = FindCutterItem(h)
+                        if c and cSlot <= 5 then
+                            cutter = c
                         end
                     end
                     
@@ -379,6 +471,16 @@ function script.OnUpdate()
                     lastMove = now
                 end
             else
+                -- После завершения шага возвращаем инвентарь один раз.
+                if plateNeedRestore and cutterSwapActive then
+                    if RestoreCutterAfterCut(h, pMe, now) then
+                        plateNeedRestore = false
+                        plateCutterReady = false
+                        return
+                    end
+                end
+                plateNeedRestore = false
+                plateCutterReady = false
                 onPlateStep = false
             end
             return
@@ -421,6 +523,8 @@ function script.OnUpdate()
                 end
             else
                 if releaseIndex == 1 then 
+                    plateCutterReady = false
+                    plateNeedRestore = false
                     onPlateStep = true 
                 end 
                 releaseIndex = releaseIndex + 1
