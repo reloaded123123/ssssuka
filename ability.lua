@@ -16,8 +16,7 @@ local state = {
     ability_w = nil,
     ability_e = nil,
     ability_r = nil,
-    talent_10_target = nil,
-    talents_others_target = {}, 
+    talent_targets = {},
     lastUpgradeTime = 0,
     initialized = false
 }
@@ -50,15 +49,26 @@ function script.OnUpdate()
 
         
         if #all_talents >= 8 then
-            
-            state.talent_10_target = all_talents[1] 
+            local isMedusa = NPC.GetUnitName(state.myHero) == "npc_dota_hero_medusa"
 
-            
-            state.talents_others_target = {
-                all_talents[4], 
-                all_talents[6], 
-                all_talents[8]  
-            }
+            -- Порядок по тиру 10/15/20/25:
+            -- Medusa: ПРАВЫЙ, ЛЕВЫЙ, ПРАВЫЙ, ЛЕВЫЙ -> 2,3,6,7
+            -- Остальные: ПРАВЫЙ, ЛЕВЫЙ, ПРАВЫЙ, ПРАВЫЙ -> 2,3,6,8
+            if isMedusa then
+                state.talent_targets = {
+                    all_talents[2],
+                    all_talents[3],
+                    all_talents[6],
+                    all_talents[7]
+                }
+            else
+                state.talent_targets = {
+                    all_talents[2],
+                    all_talents[3],
+                    all_talents[6],
+                    all_talents[8]
+                }
+            end
         end
 
         state.initialized = true
@@ -75,12 +85,7 @@ function script.OnUpdate()
     
 
     
-    if state.talent_10_target and Ability.GetLevel(state.talent_10_target) == 0 then
-        tryUpgradeAbility(state.talent_10_target)
-    end
-
-    
-    for _, talent in ipairs(state.talents_others_target) do
+    for _, talent in ipairs(state.talent_targets) do
         if talent and Ability.GetLevel(talent) == 0 then
             tryUpgradeAbility(talent)
         end

@@ -6,8 +6,8 @@ local DOOR_POS = Vector(-14430, 11679, 640)
 local BOSS_POS = Vector(-14797, 13594, 512)
 local BOSS_NAME = "npc_dota_boss_tiny"
 local START_BUY_POS = Vector(-15316, 7880, 640)
-local MOON_SHARD_ITEM = "item_dark_moon_shard"
-local MOON_SHARD_QB = "dark_moon_shard"
+local MOON_SHARD_ITEM = "item_moon_shard"
+local MOON_SHARD_QB = "moon_shard"
 local LICH_HEART = "item_lich_heart"
 local MEDUSA_FINAL_ITEM = "item_trident_lua2"
 local OTHER_FINAL_ITEM = "item_dragon_lance_lua2"
@@ -265,6 +265,7 @@ local function IsValidCombatEnemy(myHero, e)
     if eName == "" then return false end
     if eName:find("courier") then return false end
     if eName:find("ward") then return false end
+    if not IsRouteEnemyName(eName) then return false end
 
     return true
 end
@@ -681,19 +682,22 @@ function script.OnUpdate()
         local isStash = STASH_WPS[currentWaypoint]
 
         -- ТОЛЬКО если ключ был поднят в нычке: сразу дропаем топорик на землю.
-        if dropAxeAfterStashKey and keyInInv and isStash and (now - lastAxeDropTime) >= 0.25 then
+        if dropAxeAfterStashKey and keyInInv and (now - lastAxeDropTime) >= 0.25 then
             local axeItem = FindAxeForDrop(h)
-            dropAxeAfterStashKey = false
             lastAxeDropTime = now
 
             if axeItem then
                 Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, axeItem, myPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                dropAxeAfterStashKey = false
                 return
             end
+
+            -- Топорика нет: завершаем одноразовый сценарий, чтобы не зациклиться.
+            dropAxeAfterStashKey = false
         end
 
         -- Пока рядом есть враги, не двигаем прогрессию маршрута: сначала зачищаем локальную область.
-        local nearbyEnemy, nearbyEnemyDist = FindNearestCombatEnemy(h, myPos, 575, all_npcs)
+        local nearbyEnemy, nearbyEnemyDist = FindNearestCombatEnemy(h, myPos, 400, all_npcs)
         if nearbyEnemy then
             local enemyPos = Entity.GetAbsOrigin(nearbyEnemy)
             local standoff = GetAttackStandoff(h)
@@ -713,7 +717,7 @@ function script.OnUpdate()
             return
         end
 
-        local enemyNearWp, _ = FindNearestCombatEnemy(h, wpPos, 520, all_npcs)
+        local enemyNearWp, _ = FindNearestCombatEnemy(h, wpPos, 400, all_npcs)
         local mustClearBeforeMove = enemyNearWp ~= nil
 
         -- На маршруте сначала бьем врагов по линии движения и только потом наступаем на вейпоинт.
@@ -732,6 +736,28 @@ function script.OnUpdate()
             else
                 if now - lastMove >= 0.3 then
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, pathTarget, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                    lastMove = now
+                end
+            end
+            return
+        end
+
+        -- Если у целевого вейпоинта есть враг, но он не попал в pathTarget,
+        -- все равно идем/бьем его, чтобы не зависать на месте с блокировкой движения.
+        if mustClearBeforeMove and enemyNearWp then
+            local enemyPos = Entity.GetAbsOrigin(enemyNearWp)
+            local standoff = GetAttackStandoff(h)
+            local distToEnemy = enemyPos and GetDistanceSafe(myPos, enemyPos) or 0
+
+            if enemyPos and distToEnemy > standoff then
+                local approachPos = myPos + (enemyPos - myPos):Normalized() * (distToEnemy - standoff)
+                if now - lastMove >= 0.3 then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, approachPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    lastMove = now
+                end
+            else
+                if now - lastMove >= 0.25 then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, enemyNearWp, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
                     lastMove = now
                 end
             end
@@ -771,7 +797,7 @@ function script.OnUpdate()
 
             local toolReady = activeTool and (not isUsingBackpackQB or (now - swapTime >= 6.0))
             local readyTool = toolReady and activeTool or nil
-            local stashEnemy, _ = FindNearestCombatEnemy(h, myPos, 575, all_npcs)
+            local stashEnemy, _ = FindNearestCombatEnemy(h, myPos, 400, all_npcs)
             if stashEnemy then
                 local stashEnemyPos = Entity.GetAbsOrigin(stashEnemy)
                 local standoff = GetAttackStandoff(h)
