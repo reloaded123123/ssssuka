@@ -6,8 +6,8 @@ local DOOR_POS = Vector(-14430, 11679, 640)
 local BOSS_POS = Vector(-14797, 13594, 512)
 local BOSS_NAME = "npc_dota_boss_tiny"
 local START_BUY_POS = Vector(-15316, 7880, 640)
-local MOON_SHARD_ITEM = "item_moon_shard"
-local MOON_SHARD_QB = "moon_shard"
+local MOON_SHARD_ITEM = "item_dark_moon_shard"
+local MOON_SHARD_QB = "dark_moon_shard"
 local LICH_HEART = "item_lich_heart"
 local MEDUSA_FINAL_ITEM = "item_trident_lua2"
 local OTHER_FINAL_ITEM = "item_dragon_lance_lua2"
@@ -71,6 +71,10 @@ local startupNeedRestore = false
 local startupMoonQuickBuyReady = false
 local startupFinalQuickBuyReady = false
 local lichHeartHandled = false
+local level21DetectedByPoints = false
+local lastSpellPointsCheckTime = 0
+local dropAxeAfterStashKey = false
+local lastAxeDropTime = 0
 
 local function GetGlobalPhase()
     if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
@@ -178,6 +182,19 @@ local function IsRouteEnemyName(eName)
         or eName:find("npc_dota_zone_4_unit_5")
 end
 
+local function FindAxeForDrop(h)
+    for i = 0, 8 do
+        local it = NPC.GetItemByIndex(h, i)
+        if it then
+            local name = (Ability.GetName(it) or ""):lower()
+            if name:find("quelling") or name:find("bfury") or name:find("battlefury") then
+                return it
+            end
+        end
+    end
+    return nil
+end
+
 local function GetAttackStandoff(hero)
     local base = 350
     if NPC.GetAttackRange then
@@ -239,6 +256,40 @@ local function FindPathTarget(myHero, myPos, wpPos, all_npcs)
     return best
 end
 
+local function IsValidCombatEnemy(myHero, e)
+    if not e or not Entity.IsAlive(e) then return false end
+    if Entity.IsSameTeam(myHero, e) then return false end
+    if Entity.IsDormant and Entity.IsDormant(e) then return false end
+
+    local eName = (NPC.GetUnitName(e) or ""):lower()
+    if eName == "" then return false end
+    if eName:find("courier") then return false end
+    if eName:find("ward") then return false end
+
+    return true
+end
+
+local function FindNearestCombatEnemy(myHero, centerPos, radius, all_npcs)
+    local best = nil
+    local bestDist = radius + 1
+
+    for i = 1, #all_npcs do
+        local e = all_npcs[i]
+        if IsValidCombatEnemy(myHero, e) then
+            local ePos = Entity.GetAbsOrigin(e)
+            if ePos then
+                local d = GetDistanceSafe(centerPos, ePos)
+                if d <= radius and d < bestDist then
+                    bestDist = d
+                    best = e
+                end
+            end
+        end
+    end
+
+    return best, bestDist
+end
+
 function script.OnUpdate()
     if GetGlobalPhase() ~= 7 then return end
 
@@ -250,14 +301,29 @@ function script.OnUpdate()
     if not myPos then return end
     local now = os.clock()
 
-    -- На 21 уровне выбрасываем item_lich_heart и больше не трогаем эту логику.
+    -- На 21 уровне (по спелл-поинтам, как в global_monitor) выбрасываем item_lich_heart.
     if not lichHeartHandled then
-        local heroLevel = 0
-        if NPC.GetCurrentLevel then
-            heroLevel = NPC.GetCurrentLevel(h) or 0
+        if not level21DetectedByPoints and (now - lastSpellPointsCheckTime) > 1.5 then
+            lastSpellPointsCheckTime = now
+
+            local spent = 0
+            for i = 0, 31 do
+                local abil = NPC.GetAbilityByIndex(h, i)
+                if abil then
+                    local l = Ability.GetLevel(abil)
+                    if l and type(l) == "number" and l > 0 then
+                        spent = spent + l
+                    end
+                end
+            end
+
+            -- Порог события 21 уровня из global_monitor.
+            if spent >= 25 then
+                level21DetectedByPoints = true
+            end
         end
 
-        if heroLevel >= 21 then
+        if level21DetectedByPoints then
             local heart, _ = FindItemByNameInMainOrBackpack(h, LICH_HEART)
             if heart then
                 Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, heart, myPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
@@ -614,6 +680,42 @@ function script.OnUpdate()
         local distToWp = GetDistanceSafe(myPos, wpPos)
         local isStash = STASH_WPS[currentWaypoint]
 
+        -- ТОЛЬКО если ключ был поднят в нычке: сразу дропаем топорик на землю.
+        if dropAxeAfterStashKey and keyInInv and isStash and (now - lastAxeDropTime) >= 0.25 then
+            local axeItem = FindAxeForDrop(h)
+            dropAxeAfterStashKey = false
+            lastAxeDropTime = now
+
+            if axeItem then
+                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, axeItem, myPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                return
+            end
+        end
+
+        -- Пока рядом есть враги, не двигаем прогрессию маршрута: сначала зачищаем локальную область.
+        local nearbyEnemy, nearbyEnemyDist = FindNearestCombatEnemy(h, myPos, 575, all_npcs)
+        if nearbyEnemy then
+            local enemyPos = Entity.GetAbsOrigin(nearbyEnemy)
+            local standoff = GetAttackStandoff(h)
+
+            if enemyPos and nearbyEnemyDist > standoff then
+                local approachPos = myPos + (enemyPos - myPos):Normalized() * (nearbyEnemyDist - standoff)
+                if now - lastMove >= 0.3 then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, approachPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    lastMove = now
+                end
+            else
+                if now - lastMove >= 0.25 then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, nearbyEnemy, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                    lastMove = now
+                end
+            end
+            return
+        end
+
+        local enemyNearWp, _ = FindNearestCombatEnemy(h, wpPos, 520, all_npcs)
+        local mustClearBeforeMove = enemyNearWp ~= nil
+
         -- На маршруте сначала бьем врагов по линии движения и только потом наступаем на вейпоинт.
         local pathTarget = FindPathTarget(h, myPos, wpPos, all_npcs)
         if pathTarget then
@@ -638,7 +740,7 @@ function script.OnUpdate()
 
         -- Если это нычка и есть ключ - пропускаем
         if keyInInv and isStash then
-            if distToWp < 600 then 
+            if distToWp < 600 and not mustClearBeforeMove then 
                 currentWaypoint = currentWaypoint + 1
                 isWaitingInStash = false
                 stashArriveTime = 0
@@ -668,7 +770,29 @@ function script.OnUpdate()
             end
 
             local toolReady = activeTool and (not isUsingBackpackQB or (now - swapTime >= 6.0))
-            if toolReady and Ability.IsReady(activeTool) and now - lastTreeCut >= 1.0 then
+            local readyTool = toolReady and activeTool or nil
+            local stashEnemy, _ = FindNearestCombatEnemy(h, myPos, 575, all_npcs)
+            if stashEnemy then
+                local stashEnemyPos = Entity.GetAbsOrigin(stashEnemy)
+                local standoff = GetAttackStandoff(h)
+                local distToEnemy = stashEnemyPos and GetDistanceSafe(myPos, stashEnemyPos) or 0
+
+                if stashEnemyPos and distToEnemy > standoff then
+                    local approachPos = myPos + (stashEnemyPos - myPos):Normalized() * (distToEnemy - standoff)
+                    if now - lastMove >= 0.3 then
+                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, approachPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                        lastMove = now
+                    end
+                else
+                    if now - lastMove >= 0.25 then
+                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, stashEnemy, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                        lastMove = now
+                    end
+                end
+                return
+            end
+
+            if readyTool and Ability.IsReady(readyTool) and now - lastTreeCut >= 1.0 then
                 local trees = Trees.InRadius(myPos, 220, true)
                 local blocker = nil
                 local bestBlockerScore = -1
@@ -683,7 +807,7 @@ function script.OnUpdate()
                     end
                 end
                 if blocker then
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_TARGET_TREE, Entity.GetIndex(blocker), Vector(0,0,0), activeTool, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_TARGET_TREE, Entity.GetIndex(blocker), Vector(0,0,0), readyTool, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     lastTreeCut = now
                     return 
                 end
@@ -709,6 +833,7 @@ function script.OnUpdate()
                         lastMove = now
                     end
                 else
+                    dropAxeAfterStashKey = true
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_PICKUP_ITEM, targetKey, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                 end
                 return
@@ -729,7 +854,7 @@ function script.OnUpdate()
 
         local arrivalDist = 180
 
-        if distToWp < arrivalDist then
+        if distToWp < arrivalDist and not mustClearBeforeMove then
             isWaitingInStash = false
             stashArriveTime = 0
             if currentWaypoint == #WAYPOINTS then
@@ -737,7 +862,7 @@ function script.OnUpdate()
             else 
                 currentWaypoint = currentWaypoint + 1 
             end
-        elseif now - lastMove >= 0.35 then
+        elseif not mustClearBeforeMove and now - lastMove >= 0.35 then
             Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, wpPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
             lastMove = now
         end

@@ -158,7 +158,7 @@ local BOSS_TP_POS = OUTPOST_2_POS
 
 -- === КОНФИГУРАЦИЯ ===
 local SHARD_NAME   = "item_dark_moon_shard"
-local KNIFE_NAME   = "battlemage_2"
+local KNIFE_NAME   = "skadi_lua2"
 local RUNE_ILLUSION_NAME = "item_rune_illusions"
 local ILLUSION_RUNE_TYPE = 2 -- DOTA_RUNE_ILLUSION
 local ENEMY_LIST = {
@@ -204,6 +204,8 @@ local prevStage = -1
 local bossTpIssued = false
 local bossTpCastTime = 0
 local bossTpStartPos = nil
+local lastSpellPointsCheckTime = 0
+local level21DetectedByPoints = false
 
 local function GetGlobalPhase()
     if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
@@ -256,6 +258,17 @@ function module.FindTP(hero)
     return nil
 end
 
+local function FindFinalItem(hero)
+    local item = NPC.GetItem(hero, KNIFE_NAME, true)
+    if item then return item end
+
+    if KNIFE_NAME:sub(1, 5) ~= "item_" then
+        return NPC.GetItem(hero, "item_" .. KNIFE_NAME, true)
+    end
+
+    return nil
+end
+
 function module.OnUpdate()
     if GetGlobalPhase() ~= 8 then return end
 
@@ -267,6 +280,37 @@ function module.OnUpdate()
     local myTeam = Entity.GetTeamNum(h)
     local myPos = Entity.GetAbsOrigin(h)
     local now = os.clock()
+
+    -- Детект 21 уровня по сумме потраченных спелл-поинтов (как в global_monitor).
+    if not level21DetectedByPoints and (now - lastSpellPointsCheckTime) > 1.5 then
+        lastSpellPointsCheckTime = now
+        local spent = 0
+        for i = 0, 31 do
+            local abil = NPC.GetAbilityByIndex(h, i)
+            if abil then
+                local l = Ability.GetLevel(abil)
+                if l and type(l) == "number" and l > 0 then
+                    spent = spent + l
+                end
+            end
+        end
+
+        -- Порог из global_monitor для события 21 уровня.
+        if spent >= 25 then
+            level21DetectedByPoints = true
+        end
+    end
+
+    -- После достижения 21 уровня выкидываем lich heart на землю.
+    if level21DetectedByPoints then
+        local heart = NPC.GetItem(h, LICH_HEART, true)
+        if heart and now - lastActionTime > 0.4 then
+            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, nil, myPos, heart, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+            lastActionTime = now
+            level21DetectedByPoints = false
+            return
+        end
+    end
 
     -- СБРОС ЛОГИКИ ФЛАСКИ ПРИ ВХОДЕ В STAGE 3
     if prevStage ~= 3 and stage == 3 then
@@ -475,7 +519,7 @@ function module.OnUpdate()
             end
 
             if bestTarget then
-                local knife = NPC.GetItem(h, KNIFE_NAME, true) or NPC.GetItem(h, "item_" .. KNIFE_NAME, true)
+                local knife = FindFinalItem(h)
                 if knife and Ability.IsReady(knife) and now - lastItemTime > 0.4 then
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), knife, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     lastItemTime = now
@@ -734,7 +778,7 @@ function module.OnUpdate()
         -- ЛОГИКА ПРЕДМЕТОВ
         if (myPos - KEY_TARGET_2):Length2D() <= 200 then
             local shard = NPC.GetItem(h, SHARD_NAME, true)
-            local knife = NPC.GetItem(h, KNIFE_NAME, true) or NPC.GetItem(h, "item_" .. KNIFE_NAME, true)
+            local knife = FindFinalItem(h)
             if shard then
                 setupDone = false 
                 if now - lastActionTime > 1.0 then

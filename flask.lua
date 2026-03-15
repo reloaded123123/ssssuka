@@ -17,13 +17,20 @@ local bsa_final = {
         move_time = 0,          
         original_slot = -1,     -- Слот, где была фласка (например, 6)
         finished = false,
-        need_wait = false       
+        need_wait = false,
+        axe_processed = false
     },
     
     target_items = {
         "item_bkb_flask",
         "item_immune_flask"
     }
+}
+
+local axe_items = {
+    ["item_quelling_blade"] = true,
+    ["item_bfury"] = true,
+    ["item_battlefury"] = true
 }
 
 local function GetGlobalPhase()
@@ -43,6 +50,12 @@ local function IsTargetItem(item)
         if name == target then return true end
     end
     return false
+end
+
+local function IsAxeItem(item)
+    if not item then return false end
+    local name = Ability.GetName(item)
+    return name and axe_items[name] or false
 end
 
 function bsa_final.HandleFlask(me, p, hero_pos)
@@ -103,7 +116,7 @@ function bsa_final.HandleFlask(me, p, hero_pos)
         end
     end
 
-    -- ЭТАП 3: ВОЗВРАТ ПРЕДМЕТА НА МЕСТО И БЕГ
+    -- ЭТАП 3: ВОЗВРАТ ПРЕДМЕТА НА МЕСТО
     if f.was_used and not f.finished then
         -- Ждем 0.5с, чтобы сервер точно зафиксировал, что фласки в 0 слоте больше нет
         if os.clock() - f.move_time > 0.5 then
@@ -127,6 +140,64 @@ function bsa_final.HandleFlask(me, p, hero_pos)
                     print("[FLASK] Вернул предмет из слота " .. f.original_slot .. " обратно в слот 0.")
                 end
             end
+
+            f.axe_processed = false
+            f.move_time = os.clock()
+            return
+        end
+    end
+
+    -- ЭТАП 4: ПОСЛЕ ФЛАСКИ КЛАДЕМ ТОПОРИК В СВОБОДНЫЙ СЛОТ РАНЦА
+    if f.was_used and not f.finished and not f.axe_processed then
+        if os.clock() - f.move_time > 0.2 then
+            local axeHandle = nil
+            local axeSlot = -1
+
+            for i = 0, 8 do
+                local it = NPC.GetItemByIndex(me, i)
+                if it and IsAxeItem(it) then
+                    axeHandle = it
+                    axeSlot = i
+                    break
+                end
+            end
+
+            if axeHandle and axeSlot <= 5 then
+                local freeBackpackSlot = -1
+                for i = 6, 8 do
+                    if not NPC.GetItemByIndex(me, i) then
+                        freeBackpackSlot = i
+                        break
+                    end
+                end
+
+                if freeBackpackSlot ~= -1 then
+                    Player.PrepareUnitOrders(
+                        p,
+                        Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM,
+                        freeBackpackSlot,
+                        Vector(0,0,0),
+                        axeHandle,
+                        Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY,
+                        me
+                    )
+                    print("[FLASK] Переместил топорик в ранец: слот " .. freeBackpackSlot)
+                    f.move_time = os.clock()
+                    f.axe_processed = true
+                    return
+                end
+            end
+
+            -- Топорик не найден, уже в ранце, или нет места в ранце.
+            f.axe_processed = true
+            f.move_time = os.clock()
+            return
+        end
+    end
+
+    -- ЭТАП 5: ПОСЛЕ ВСЕГО БЕЖИМ
+    if f.was_used and not f.finished and f.axe_processed then
+        if os.clock() - f.move_time > 0.2 then
 
             -- СРАЗУ ПОСЛЕ ЭТОГО БЕЖИМ
             Player.PrepareUnitOrders(
