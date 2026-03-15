@@ -41,6 +41,16 @@ local lockedTarget = nil
 local lockedTargetName = nil
 local bossKilled = false
 
+local function GetGlobalPhase()
+    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
+    return GlobalPhase
+end
+
+local function SetGlobalPhase(v)
+    if _G then _G.GlobalPhase = v end
+    GlobalPhase = v
+end
+
 local function IsValidEnemy(myHero, npc)
     return npc and Entity.IsAlive(npc) and not Entity.IsDormant(npc) and not Entity.IsSameTeam(myHero, npc)
 end
@@ -53,6 +63,8 @@ local function CanChaseTarget(myPos, npc)
 end
 
 function script.OnUpdate()
+    if GetGlobalPhase() ~= 1 then return end
+
     local myHero = Heroes.GetLocal()
     if not myHero or not Entity.IsAlive(myHero) then return end
 
@@ -62,7 +74,10 @@ function script.OnUpdate()
     local myPos = Entity.GetAbsOrigin(myHero)
     local now = os.clock()
 
-    if currentWP > #WAYPOINTS then return end
+    if currentWP > #WAYPOINTS then
+        SetGlobalPhase(2)
+        return
+    end
 
     -- 0. ПОИСК ПРЕДМЕТА НА ЗЕМЛЕ (Приоритет выше атаки)
     local physicalItems = PhysicalItems.GetAll()

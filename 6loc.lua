@@ -205,6 +205,16 @@ local bossTpIssued = false
 local bossTpCastTime = 0
 local bossTpStartPos = nil
 
+local function GetGlobalPhase()
+    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
+    return GlobalPhase
+end
+
+local function SetGlobalPhase(v)
+    if _G then _G.GlobalPhase = v end
+    GlobalPhase = v
+end
+
 -- === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 
 function module.CheckInventoryForOrb(hero)
@@ -224,6 +234,8 @@ function module.FindTP(hero)
 end
 
 function module.OnUpdate()
+    if GetGlobalPhase() ~= 8 then return end
+
     
     local h = Heroes.GetLocal()
     if not h or not Entity.IsAlive(h) then return end
@@ -259,7 +271,7 @@ function module.OnUpdate()
             if currentSecondStage == "TP_TO_WAIT" then currentSecondStage = "MOVING_TO_WAIT_POS" end
             if currentSecondStage == "TP_TO_BOSS" then currentSecondStage = "BOSS_FIGHT" end
             if currentSecondStage == "TP_TO_FINAL" then 
-                _G.GlobalPhase = 6
+                SetGlobalPhase(9)
                 currentSecondStage = "FINISHED" 
             end
             return 
@@ -356,7 +368,6 @@ function module.OnUpdate()
                 if now - lastActionTime > 2.0 then
                     Log.Write("[TP_TO_BOSS] Кастуем ТП к боссам")
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_STOP, nil, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_POSITION, nil, BOSS_TP_POS, tp, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     bossTpIssued = true
                     bossTpCastTime = now
                     lastActionTime = now
@@ -512,7 +523,6 @@ function module.OnUpdate()
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_STOP, nil, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_POSITION, nil, OUTPOST_2_POS, tp, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     lastActionTime = now
-                    _G.GlobalPhase = 6
                 end
             end
         end

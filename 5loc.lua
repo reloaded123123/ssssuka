@@ -72,6 +72,16 @@ local startupMoonQuickBuyReady = false
 local startupFinalQuickBuyReady = false
 local lichHeartHandled = false
 
+local function GetGlobalPhase()
+    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
+    return GlobalPhase
+end
+
+local function SetGlobalPhase(v)
+    if _G then _G.GlobalPhase = v end
+    GlobalPhase = v
+end
+
 local function GetFinalBuyItemName(h)
     if not h then return OTHER_FINAL_ITEM end
     if NPC.GetUnitName(h) == "npc_dota_hero_medusa" then
@@ -230,6 +240,8 @@ local function FindPathTarget(myHero, myPos, wpPos, all_npcs)
 end
 
 function script.OnUpdate()
+    if GetGlobalPhase() ~= 7 then return end
+
     local h = Hero()
     if not h or not Entity.IsAlive(h) then return end
     local pMe = PlayerMe()
@@ -548,6 +560,7 @@ function script.OnUpdate()
 
     
     if bossWasSeen and not bossAliveNow then
+        SetGlobalPhase(8)
         return
     end
 
@@ -747,6 +760,13 @@ function script.OnUpdate()
         if GetDistanceSafe(myPos, BOSS_POS) > 250 then
             if now - lastMove >= 0.35 then
                 Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, BOSS_POS, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                lastMove = now
+            end
+        else
+            -- Здесь только удерживаем позицию у босса.
+            -- Переход в фазу 8 делается выше только после подтвержденной смерти босса.
+            if now - lastMove >= 0.8 then
+                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_STOP, nil, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                 lastMove = now
             end
         end

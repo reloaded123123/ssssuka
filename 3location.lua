@@ -282,13 +282,35 @@ local traps_logic = {
     }
 }
 
+local traversalCompleted = false
+
+local function GetGlobalPhase()
+    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
+    return GlobalPhase
+end
+
+local function SetGlobalPhase(v)
+    if _G then _G.GlobalPhase = v end
+    GlobalPhase = v
+end
+
 function script.OnUpdate()
+    if GetGlobalPhase() ~= 3 then return end
+
+    if traversalCompleted then
+        SetGlobalPhase(4)
+        return
+    end
+
     local me = Heroes.GetLocal()
     if not me or not Entity.IsAlive(me) then return end
     
     local my_pos = Entity.GetAbsOrigin(me)
     local wp = traps_logic.waypoints[traps_logic.current_idx]
-    if not wp then return end
+    if not wp then
+        traversalCompleted = true
+        return
+    end
 
     local now = os.clock()
     local d = traps_logic.trap_data
@@ -544,6 +566,12 @@ function script.OnUpdate()
 
     if (my_pos - wp.stand):Length2D() > 45 then
         script.Move(me, wp.stand)
+        return
+    end
+
+    if traps_logic.current_idx == #traps_logic.waypoints and not wp.target and not wp.trap_name and not wp.laser_name then
+        Player.PrepareUnitOrders(Players.GetLocal(), Enum.UnitOrder.DOTA_UNIT_ORDER_STOP, nil, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUED_BY_PLAYER, me)
+        traversalCompleted = true
         return
     end
 

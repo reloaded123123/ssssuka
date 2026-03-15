@@ -82,6 +82,16 @@ local cutterSwapLastAction = 0
 local plateCutterReady = false
 local plateNeedRestore = false
 
+local function GetGlobalPhase()
+    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
+    return GlobalPhase
+end
+
+local function SetGlobalPhase(v)
+    if _G then _G.GlobalPhase = v end
+    GlobalPhase = v
+end
+
 local function Hero() 
     return Heroes.GetLocal() 
 end
@@ -218,6 +228,8 @@ local function IsNearForbiddenSheepPoint(pos)
 end
 
 function script.OnUpdate()
+    if GetGlobalPhase() ~= 6 then return end
+
    
     local h = Hero()
     if not h or not Entity.IsAlive(h) then 
@@ -399,7 +411,7 @@ function script.OnUpdate()
                     end
                 end
             else
-                _G.GlobalPhase = 4 
+                SetGlobalPhase(7)
                 return
             end
             return

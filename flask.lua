@@ -26,6 +26,16 @@ local bsa_final = {
     }
 }
 
+local function GetGlobalPhase()
+    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
+    return GlobalPhase
+end
+
+local function SetGlobalPhase(v)
+    if _G then _G.GlobalPhase = v end
+    GlobalPhase = v
+end
+
 local function IsTargetItem(item)
     if not item then return false end
     local name = Ability.GetName(item)
@@ -138,6 +148,8 @@ end
 
 return {
     OnUpdate = function()
+        if GetGlobalPhase() ~= 4 then return end
+
         local me = Heroes.GetLocal()
         if not me or not Entity.IsAlive(me) then return end
         local p = Players.GetLocal()
@@ -146,5 +158,9 @@ return {
         if not hero_pos then return end
 
         bsa_final.HandleFlask(me, p, hero_pos)
+
+        if bsa_final.flask_logic.finished then
+            SetGlobalPhase(5)
+        end
     end
 }

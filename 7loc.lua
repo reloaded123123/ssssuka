@@ -62,6 +62,16 @@ script.lastHealth = 0
 script.waitStartTime = 0 
 script.lastLoggedState = ""
 
+local function GetGlobalPhase()
+    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
+    return GlobalPhase
+end
+
+local function SetGlobalPhase(v)
+    if _G then _G.GlobalPhase = v end
+    GlobalPhase = v
+end
+
 -- === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 
 local function GetKnives(h)
@@ -122,6 +132,8 @@ end
 -- === ОСНОВНАЯ ЛОГИКА ОБНОВЛЕНИЯ ===
 
 function script.OnUpdate()
+    if GetGlobalPhase() ~= 9 then return end
+
    
     local myHero = Heroes.GetLocal()
     if not myHero or not Entity.IsAlive(myHero) then 
@@ -276,7 +288,7 @@ function script.OnUpdate()
     elseif script.state == "BOSS_FIGHT" then
         local soul, _ = script.FindItemInInventory(myHero, script.BOSS_SOUL_NAME)
         if soul then
-            _G.GlobalPhase = 7
+            SetGlobalPhase(10)
             return
         end
 

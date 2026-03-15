@@ -37,6 +37,16 @@ local solver = {
     done = false -- Мягкий стоп логики
 }
 
+local function GetGlobalPhase()
+    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
+    return GlobalPhase
+end
+
+local function SetGlobalPhase(v)
+    if _G then _G.GlobalPhase = v end
+    GlobalPhase = v
+end
+
 local function Dist2D(p1, p2)
     if not p1 or not p2 then return 9999 end
     return (p1 - p2):Length2D()
@@ -81,6 +91,8 @@ return {
     end,
 
     OnUpdate = function()
+        if GetGlobalPhase() ~= 5 then return end
+
         -- Если мы уже закончили — ничего не делаем
         if solver.done then return end
 
@@ -99,6 +111,7 @@ return {
                 -- Пришли, дали стоп и забыли
                 Player.PrepareUnitOrders(solver.player, 8, nil, nil, nil, 2, solver.hero, false, false, false, false, nil, false)
                 print("[DIAG] Финальная точка достигнута. Отключаюсь.")
+                SetGlobalPhase(6)
                 solver.done = true
             end
             return

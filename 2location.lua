@@ -25,8 +25,21 @@ local WAYPOINTS_L2 = {
 
 local currentWP = 1
 local lastMoveTime = 0
+local bossWasSeen = false
+
+local function GetGlobalPhase()
+    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
+    return GlobalPhase
+end
+
+local function SetGlobalPhase(v)
+    if _G then _G.GlobalPhase = v end
+    GlobalPhase = v
+end
 
 function script.OnUpdate()
+    if GetGlobalPhase() ~= 2 then return end
+
     local myHero = Heroes.GetLocal()
     if not myHero or not Entity.IsAlive(myHero) then return end
 
@@ -36,9 +49,8 @@ function script.OnUpdate()
     local myPos = Entity.GetAbsOrigin(myHero)
     local now = os.clock()
 
-    if currentWP > #WAYPOINTS_L2 then return end
-
-    local targetPos = WAYPOINTS_L2[currentWP]
+    local routeFinished = currentWP > #WAYPOINTS_L2
+    local targetPos = WAYPOINTS_L2[math.min(currentWP, #WAYPOINTS_L2)]
 
     -- 1. ПОИСК ЦЕЛЕЙ
     local allNPCs = NPCs.GetAll()
@@ -46,6 +58,7 @@ function script.OnUpdate()
     local bossTarget = nil
     local normalTarget = nil
 
+    local bossAliveNow = false
     for i = 1, #allNPCs do
         local npc = allNPCs[i]
         if npc and Entity.IsAlive(npc) and not Entity.IsSameTeam(myHero, npc) and not Entity.IsDormant(npc) then
@@ -60,21 +73,33 @@ function script.OnUpdate()
 
             -- Если мы на финальной точке, ищем босса в большом радиусе (1000)
             if name == BOSS_NAME then
-                local bossSearchDist = (currentWP >= 23) and 1000 or 400
+                bossWasSeen = true
+                bossAliveNow = true
+                local bossSearchDist = (routeFinished or currentWP >= 23) and 1800 or 400
                 if distToHero <= bossSearchDist then
                     bossTarget = npc
                 end
             end
 
             -- Обычные мобы в радиусе 400
-            if TARGET_UNITS[name] and distToHero <= 400 then
+            if TARGET_UNITS[name] and distToHero <= 400 and not routeFinished then
                 normalTarget = npc
             end
         end
     end
 
-    -- 2. ВЫБОР ЦЕЛИ (Босс теперь важнее обычных мобов)
-    local activeTarget = crateTarget or bossTarget or normalTarget
+    if routeFinished and bossWasSeen and not bossAliveNow then
+        SetGlobalPhase(3)
+        return
+    end
+
+    -- 2. ВЫБОР ЦЕЛИ (после окончания маршрута бьем только босса)
+    local activeTarget = nil
+    if routeFinished then
+        activeTarget = bossTarget
+    else
+        activeTarget = crateTarget or bossTarget or normalTarget
+    end
 
     if activeTarget then
         Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, activeTarget, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
