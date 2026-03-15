@@ -40,6 +40,8 @@ local lastPickTime = 0
 local lockedTarget = nil
 local lockedTargetName = nil
 local bossKilled = false
+local flaskMovedToBackpack = false
+local lastFlaskMoveTry = 0
 
 local function GetGlobalPhase()
     if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
@@ -73,6 +75,39 @@ function script.OnUpdate()
 
     local myPos = Entity.GetAbsOrigin(myHero)
     local now = os.clock()
+
+    -- Одноразово переносим flask из активного инвентаря в свободный слот ранца.
+    if not flaskMovedToBackpack and now - lastFlaskMoveTry > 0.3 then
+        lastFlaskMoveTry = now
+
+        local flaskHandle = nil
+        for i = 0, 5 do
+            local item = NPC.GetItemByIndex(myHero, i)
+            if item then
+                local itemName = Ability.GetName(item)
+                if itemName and (itemName:find("bkb_flask") or itemName:find("immune_flask")) then
+                    flaskHandle = item
+                    break
+                end
+            end
+        end
+
+        if flaskHandle then
+            local freeBackpackSlot = nil
+            for i = 6, 8 do
+                if not NPC.GetItemByIndex(myHero, i) then
+                    freeBackpackSlot = i
+                    break
+                end
+            end
+
+            if freeBackpackSlot then
+                Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, freeBackpackSlot, Vector(0,0,0), flaskHandle, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
+                flaskMovedToBackpack = true
+                return
+            end
+        end
+    end
 
     if currentWP > #WAYPOINTS then
         SetGlobalPhase(2)

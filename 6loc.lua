@@ -215,6 +215,29 @@ local function SetGlobalPhase(v)
     GlobalPhase = v
 end
 
+local function IsValidCombatEnemy(me, enemy)
+    return enemy
+        and Entity.IsAlive(enemy)
+        and not Entity.IsDormant(enemy)
+        and not Entity.IsSameTeam(me, enemy)
+end
+
+local function FindNearestEnemyInRadius(me, myPos, radius)
+    local enemies = Entity.GetUnitsInRadius(me, radius, Enum.TeamType.TEAM_ENEMY)
+    local best = nil
+    local minDist = 99999
+    for _, enemy in ipairs(enemies) do
+        if IsValidCombatEnemy(me, enemy) then
+            local d = (myPos - Entity.GetAbsOrigin(enemy)):Length2D()
+            if d < minDist then
+                minDist = d
+                best = enemy
+            end
+        end
+    end
+    return best, minDist
+end
+
 -- === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 
 function module.CheckInventoryForOrb(hero)
@@ -294,20 +317,25 @@ function module.OnUpdate()
             local bestTarget = nil
             local minDist = 99999
             
-            if not isMovingOnly then
-                local enemies = Entity.GetUnitsInRadius(h, (currentWP == 8 and 300 or 700), Enum.TeamType.TEAM_ENEMY)
-                for _, enemy in ipairs(enemies) do
-                    if enemy and Entity.IsAlive(enemy) then
-                        local enemyName = NPC.GetUnitName(enemy)
-                        if ENEMY_LIST[enemyName] then
-                            local d = (myPos - Entity.GetAbsOrigin(enemy)):Length2D()
-                            if d < minDist then
-                                minDist = d
-                                bestTarget = enemy
-                            end
+            local enemies = Entity.GetUnitsInRadius(h, 700, Enum.TeamType.TEAM_ENEMY)
+            for _, enemy in ipairs(enemies) do
+                if IsValidCombatEnemy(h, enemy) then
+                    local enemyName = NPC.GetUnitName(enemy)
+                    if ENEMY_LIST[enemyName] then
+                        local d = (myPos - Entity.GetAbsOrigin(enemy)):Length2D()
+                        if d < minDist then
+                            minDist = d
+                            bestTarget = enemy
                         end
                     end
                 end
+            end
+
+            -- Вперед не идем, пока рядом кто-то живой: сначала зачистка, потом маршрут.
+            local nearbyAnyEnemy, nearbyDist = FindNearestEnemyInRadius(h, myPos, isMovingOnly and 600 or 620)
+            if not bestTarget and nearbyAnyEnemy then
+                bestTarget = nearbyAnyEnemy
+                minDist = nearbyDist or minDist
             end
 
             if bestTarget then

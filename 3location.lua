@@ -59,6 +59,15 @@ local FIRST_LASER_MIN_DIST = 200
 local LOOK_AHEAD_TIME = 1.5
 local PING_COMPENSATION = 50
 local LOG_ACTIONS = true
+local laser_draw = {
+    font = Render.LoadFont("Arial", 18, Enum.FontCreate.FONTFLAG_ANTIALIAS),
+    ok = Color(120, 255, 120, 255),
+    bad = Color(255, 120, 120, 255),
+    info = Color(180, 220, 255, 255),
+    beam = Color(255, 200, 90, 255),
+    orbit = Color(120, 170, 255, 255),
+    future = Color(255, 140, 140, 255)
+}
 
 -- АДАПТИВНАЯ СИСТЕМА ДЛЯ ЛОВУШЕК
 local last_frame_times = {}
@@ -278,7 +287,8 @@ local traps_logic = {
         orbit_start_time = 0, wait_start_time = 0, ability_used = false, stuck_move_attempts = 0,
         first_laser_wait_start = 0, all_passed_time = 0, proj_min_dist = {},
         burst_first_time = nil, burst_complete_time = nil,
-        cooldown_seen = false, trap_start_time = nil
+        cooldown_seen = false, trap_start_time = nil,
+        first_laser_committed = false
     }
 }
 
@@ -315,6 +325,10 @@ function script.OnUpdate()
     local now = os.clock()
     local d = traps_logic.trap_data
     local current_idx = traps_logic.current_idx
+
+    if current_idx ~= 4 then
+        d.first_laser_committed = false
+    end
 
     if current_idx == 4 then
         local movement_threshold = 30
@@ -480,10 +494,15 @@ function script.OnUpdate()
                         beam_yaw = laser_beam_particle.angle
                     end
                     local dist_to_laser = (my_pos - l_pos):Length2D()
+                    local dist_from_stand = (my_pos - wp.stand):Length2D()
                     local reactive_abort = false
 
+                    if d.first_laser_committed or dist_from_stand > 150 then
+                        d.first_laser_committed = true
+                    end
+
                     -- РАННИЙ ОТСКОК ПРИ 30° (чтобы никогда не касаться)
-                    if dist_to_laser < LASER_RADIUS + 25 then
+                    if (not d.first_laser_committed) and dist_to_laser < LASER_RADIUS + 25 then
                         local pos_angle = math.atan2(my_pos.y - l_pos.y, my_pos.x - l_pos.x) * 180 / math.pi
                         local adiff = math.abs(pos_angle - beam_yaw)
                         while adiff > 180 do adiff = math.abs(adiff - 360) end
@@ -497,7 +516,8 @@ function script.OnUpdate()
                             end
                         end
                     end
-                    if not reactive_abort then
+
+                    if d.first_laser_committed or not reactive_abort then
                         move_goal = wp.target
                     end
                 else
@@ -609,6 +629,7 @@ function script.OnUpdate()
                             local wait_time = now - d.first_laser_wait_start
                             
                             local path_is_safe = script.IsFirstLaserPathSafe(wp.stand, wp.target, l_pos, d.last_yaw, d.omega)
+                            local safe_window = script.FindSafePassageWindow(wp.stand, wp.target, l_pos, d.last_yaw, d.omega, current_idx)
                             
                             local omega_abs = math.abs(d.omega)
                             local max_wait_time = (360.0 / omega_abs) + 1.0
@@ -619,28 +640,44 @@ function script.OnUpdate()
                                 max_wait_time = max_wait_time + 1.5
                             end
 
+                            local isCW = d.omega > 0.01
+                            local min_wait_time = isCW and 0.45 or 0.20
+                            local canStartNow = path_is_safe and (wait_time >= min_wait_time)
+
+                            if isCW then
+                                canStartNow = canStartNow and (safe_window >= 0 and safe_window <= 0.12)
+                            else
+                                if safe_window >= 0 then
+                                    canStartNow = canStartNow and (safe_window <= 0.18)
+                                end
+                            end
+
                             if LOG_ACTIONS and math.floor(wait_time * 2) % 2 == 0 then
                                 local direction = d.omega > 0 and "CW" or "CCW"
                                 local speed_cat = omega_abs > 90 and "very_fast" or
                                                  omega_abs > 70 and "fast" or
                                                  omega_abs > 45 and "medium" or "slow"
-                                Log.Write(string.format("[FIRST LASER] Wait %.1f/%.1fs, %s %s, path safe: %s",
+                                Log.Write(string.format("[FIRST LASER] Wait %.1f/%.1fs, %s %s, path=%s, wnd=%.2f, min=%.2f",
                                     wait_time, max_wait_time, speed_cat, direction,
-                                    tostring(path_is_safe)))
+                                    tostring(path_is_safe), safe_window or -1, min_wait_time))
                             end
                             
-                            if path_is_safe or wait_time > max_wait_time then
+                            local allowTimeoutForce = (not isCW) and (wait_time > max_wait_time)
+
+                            if canStartNow or allowTimeoutForce then
                                 laser_ready = true
                                 d.finish_time = now + 0.05
+                                d.first_laser_committed = true
                                 if LOG_ACTIONS then 
-                                    if path_is_safe then
+                                    if canStartNow then
                                         Log.Write("[FIRST LASER] PATH CLEAR - DASH TO TARGET!")
                                     else
-                                        Log.Write(string.format("[FIRST LASER] Timeout %.1fs - forcing passage", wait_time))
+                                        Log.Write(string.format("[FIRST LASER] CCW timeout %.1fs - forcing passage", wait_time))
                                     end
                                 end
                             else
                                 laser_ready = false
+                                d.first_laser_committed = false
                             end
                         elseif current_idx == 8 then
                             laser_ready = is_stand_safe and is_path_safe
@@ -1070,8 +1107,99 @@ function script.ResetData()
         orbit_start_time = 0, wait_start_time = 0, ability_used = false, stuck_move_attempts = 0,
         first_laser_wait_start = 0, all_passed_time = 0, proj_min_dist = {},
         burst_first_time = nil, burst_complete_time = nil,
-        cooldown_seen = false, trap_start_time = nil
+        cooldown_seen = false, trap_start_time = nil,
+        first_laser_committed = false
     }
+end
+
+function script.OnDraw()
+    local me = Heroes.GetLocal()
+    if not me then return end
+
+    if traps_logic.current_idx ~= 4 then return end
+
+    local now = os.clock()
+    local d = traps_logic.trap_data
+    local current_wp = traps_logic.waypoints[traps_logic.current_idx]
+    local laser_name = current_wp and current_wp.laser_name or "npc_dota_first_circle_trap"
+    local laser_ent = script.FindLaser(nil, laser_name)
+    local entYaw = nil
+    if laser_ent then
+        entYaw = Entity.GetRotation(laser_ent):GetYaw()
+    end
+
+    local hasBeam = laser_beam_particle.center and laser_beam_particle.tip and (now - (laser_beam_particle.updated or 0) < 0.8)
+    local angleForDir = laser_beam_particle.angle or entYaw
+
+    local c = nil
+    local t = nil
+    if hasBeam then
+        c = laser_beam_particle.center
+        t = laser_beam_particle.tip
+    elseif laser_ent then
+        c = Entity.GetAbsOrigin(laser_ent)
+    end
+
+    if not c then return end
+
+    local radius = LASER_RADIUS
+    if c and t then
+        local r = (t - c):Length2D()
+        if r and r > 80 then radius = r end
+    end
+
+    local c2, cVis = Render.WorldToScreen(c)
+    local t2, tVis = nil, false
+    if t then
+        t2, tVis = Render.WorldToScreen(t)
+    end
+
+    if c and t then
+        local segments = 16
+        for i = 1, segments - 1 do
+            local k = i / segments
+            local p = c + (t - c) * k
+            local p2, pVis = Render.WorldToScreen(p)
+            if pVis and p2 then
+                Render.Text(laser_draw.font, 14, ".", p2, laser_draw.beam)
+            end
+        end
+    end
+
+    -- Окружность траектории вращения луча.
+    local orbitSegments = 56
+    for i = 0, orbitSegments - 1 do
+        local ang = (2 * math.pi) * (i / orbitSegments)
+        local p = c + Vector(math.cos(ang) * radius, math.sin(ang) * radius, 0)
+        local p2, pVis = Render.WorldToScreen(p)
+        if pVis and p2 then
+            Render.Text(laser_draw.font, 12, ".", p2, laser_draw.orbit)
+        end
+    end
+
+    if angleForDir then
+        local rad = angleForDir * math.pi / 180
+        local dirTip = c + Vector(math.cos(rad) * radius, math.sin(rad) * radius, 0)
+
+        -- Прогнозные положения луча (sweep) по d.omega.
+        local omega = (d and d.omega) or 0
+        local futureTimes = {0.25, 0.5, 0.75, 1.0}
+        for _, ft in ipairs(futureTimes) do
+            local futureDeg = angleForDir + omega * ft
+            local frad = futureDeg * math.pi / 180
+            local fTip = c + Vector(math.cos(frad) * radius, math.sin(frad) * radius, 0)
+
+            local raySegments = 10
+            for s = 1, raySegments do
+                local k = s / raySegments
+                local rp = c + (fTip - c) * k
+                local rp2, rpVis = Render.WorldToScreen(rp)
+                if rpVis and rp2 then
+                    Render.Text(laser_draw.font, 12, ":", rp2, laser_draw.future)
+                end
+            end
+        end
+    end
 end
 
 function script.OnLinearProjectileCreate(proj)
