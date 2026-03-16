@@ -1,5 +1,8 @@
 local script = {}
 
+local PHASE_ID = 6
+local NEXT_PHASE_ID = 7
+
 -- НОВЫЕ ДАННЫЕ ИЗ ТВОЕГО ЗАПРОСА
 local TARGET_ITEM_NAME = "item_gem_shard" 
 local QUICKBUY_NAME = "gem_shard"          
@@ -228,7 +231,7 @@ local function IsNearForbiddenSheepPoint(pos)
 end
 
 function script.OnUpdate()
-    if GetGlobalPhase() ~= 6 then return end
+    if GetGlobalPhase() ~= PHASE_ID then return end
 
    
     local h = Hero()
@@ -411,7 +414,7 @@ function script.OnUpdate()
                     end
                 end
             else
-                SetGlobalPhase(7)
+                SetGlobalPhase(NEXT_PHASE_ID)
                 return
             end
             return

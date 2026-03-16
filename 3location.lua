@@ -1,5 +1,8 @@
 local script = {}
 
+local PHASE_ID = 3
+local NEXT_PHASE_ID = 4
+
 -- Глобальная таблица снарядов, пойманных через OnLinearProjectileCreate
 -- Ключ: имя NPC-источника (zone_2_trap_X), значение: список handle снарядов
 local trap_proj_pending = {}
@@ -305,10 +308,10 @@ local function SetGlobalPhase(v)
 end
 
 function script.OnUpdate()
-    if GetGlobalPhase() ~= 3 then return end
+    if GetGlobalPhase() ~= PHASE_ID then return end
 
     if traversalCompleted then
-        SetGlobalPhase(4)
+        SetGlobalPhase(NEXT_PHASE_ID)
         return
     end
 

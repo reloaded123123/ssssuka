@@ -1,5 +1,8 @@
 local script = {}
 
+local PHASE_ID = 1
+local NEXT_PHASE_ID = 2
+
 -- Настройки целей
 local QUEST_UNIT = "npc_dota_zone_1_unit_quest"
 local ITEM_TO_PICK = "item_quelling_blade" -- Название предмета для поиска
@@ -65,7 +68,7 @@ local function CanChaseTarget(myPos, npc)
 end
 
 function script.OnUpdate()
-    if GetGlobalPhase() ~= 1 then return end
+    if GetGlobalPhase() ~= PHASE_ID then return end
 
     local myHero = Heroes.GetLocal()
     if not myHero or not Entity.IsAlive(myHero) then return end
@@ -110,7 +113,7 @@ function script.OnUpdate()
     end
 
     if currentWP > #WAYPOINTS then
-        SetGlobalPhase(2)
+        SetGlobalPhase(NEXT_PHASE_ID)
         return
     end
 

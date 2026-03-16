@@ -11,6 +11,9 @@ local Vector = Vector
 
 local FINISH_POS = Vector(-11973, -1824, 640)
 
+local PHASE_ID = 4
+local NEXT_PHASE_ID = 5
+
 local bsa_final = {
     flask_logic = {
         is_active = true,       
@@ -239,7 +242,7 @@ end
 
 return {
     OnUpdate = function()
-        if GetGlobalPhase() ~= 4 then return end
+        if GetGlobalPhase() ~= PHASE_ID then return end
 
         local me = Heroes.GetLocal()
         if not me or not Entity.IsAlive(me) then return end
@@ -251,7 +254,7 @@ return {
         bsa_final.HandleFlask(me, p, hero_pos)
 
         if bsa_final.flask_logic.finished then
-            SetGlobalPhase(5)
+            SetGlobalPhase(NEXT_PHASE_ID)
         end
     end
 }

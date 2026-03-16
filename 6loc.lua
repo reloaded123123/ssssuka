@@ -1,5 +1,8 @@
 local module = {}
 
+local PHASE_ID = 8
+local NEXT_PHASE_ID = 9
+
 -- === КООРДИНАТЫ БЛОК 1 (ЛОВУШКИ И ИЛЛЮЗИИ) ===
 local START_PLATE  = Vector(-12752, 14417, 384) 
 local FINAL_TARGET = Vector(-10075, 14462, 384) 
@@ -270,7 +273,7 @@ local function FindFinalItem(hero)
 end
 
 function module.OnUpdate()
-    if GetGlobalPhase() ~= 8 then return end
+    if GetGlobalPhase() ~= PHASE_ID then return end
 
     
     local h = Heroes.GetLocal()
@@ -338,7 +341,7 @@ function module.OnUpdate()
             if currentSecondStage == "TP_TO_WAIT" then currentSecondStage = "MOVING_TO_WAIT_POS" end
             if currentSecondStage == "TP_TO_BOSS" then currentSecondStage = "BOSS_FIGHT" end
             if currentSecondStage == "TP_TO_FINAL" then 
-                SetGlobalPhase(9)
+                SetGlobalPhase(NEXT_PHASE_ID)
                 currentSecondStage = "FINISHED" 
             end
             return 

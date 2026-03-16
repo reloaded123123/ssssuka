@@ -1,5 +1,8 @@
 local script = {}
 
+local PHASE_ID = 7
+local NEXT_PHASE_ID = 8
+
 
 local KEY_ITEM_NAME = "item_prison_cell_key"
 local DOOR_POS = Vector(-14430, 11679, 640) 
@@ -308,7 +311,7 @@ local function IsProtected(itemName)
 end
 
 function script.OnUpdate()
-    if GetGlobalPhase() ~= 7 then return end
+    if GetGlobalPhase() ~= PHASE_ID then return end
 
     local h = Hero()
     if not h or not Entity.IsAlive(h) then return end
@@ -608,7 +611,7 @@ function script.OnUpdate()
 
     
     if bossWasSeen and not bossAliveNow then
-        SetGlobalPhase(8)
+        SetGlobalPhase(NEXT_PHASE_ID)
         return
     end
 

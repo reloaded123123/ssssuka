@@ -26,6 +26,9 @@ local POS_TOL = 70
 local PLATE_TOL = 70 
 local ATTACK_INTERVAL = 0.8 
 
+local PHASE_ID = 5
+local NEXT_PHASE_ID = 6
+
 local solver = {
     hero = nil,
     player = nil,
@@ -91,7 +94,7 @@ return {
     end,
 
     OnUpdate = function()
-        if GetGlobalPhase() ~= 5 then return end
+        if GetGlobalPhase() ~= PHASE_ID then return end
 
         -- Если мы уже закончили — ничего не делаем
         if solver.done then return end
@@ -111,7 +114,7 @@ return {
                 -- Пришли, дали стоп и забыли
                 Player.PrepareUnitOrders(solver.player, 8, nil, nil, nil, 2, solver.hero, false, false, false, false, nil, false)
                 print("[DIAG] Финальная точка достигнута. Отключаюсь.")
-                SetGlobalPhase(6)
+                SetGlobalPhase(NEXT_PHASE_ID)
                 solver.done = true
             end
             return
