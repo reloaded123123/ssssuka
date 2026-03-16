@@ -9,6 +9,8 @@ local Ability = Ability
 local Enum = Enum
 local Vector = Vector
 
+local FINISH_POS = Vector(-11973, -1824, 640)
+
 local bsa_final = {
     flask_logic = {
         is_active = true,       
@@ -17,6 +19,7 @@ local bsa_final = {
         move_time = 0,          
         original_slot = -1,     -- Слот, где была фласка (например, 6)
         finished = false,
+        finish_move_ordered = false,
         need_wait = false,
         axe_processed = false
     },
@@ -195,8 +198,26 @@ function bsa_final.HandleFlask(me, p, hero_pos)
         end
     end
 
-    -- ЭТАП 5: ПОСЛЕ ВСЕГО БЕЖИМ
+    -- ЭТАП 5: ПОСЛЕ ВСЕГО БЕЖИМ (и считаем завершенным только когда реально дошли)
     if f.was_used and not f.finished and f.axe_processed then
+        if f.finish_move_ordered then
+            if (hero_pos - FINISH_POS):Length2D() <= 120 then
+                Player.PrepareUnitOrders(
+                    p,
+                    Enum.UnitOrder.DOTA_UNIT_ORDER_STOP,
+                    nil,
+                    Vector(0, 0, 0),
+                    nil,
+                    Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY,
+                    me
+                )
+                print("[FLASK] Финиш достигнут. Завершаю фазу.")
+                f.finished = true
+                f.is_active = false
+            end
+            return
+        end
+
         if os.clock() - f.move_time > 0.2 then
 
             -- СРАЗУ ПОСЛЕ ЭТОГО БЕЖИМ
@@ -204,15 +225,14 @@ function bsa_final.HandleFlask(me, p, hero_pos)
                 p, 
                 Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, 
                 nil, 
-                Vector(-11973, -1824, 640), 
+                FINISH_POS, 
                 nil, 
                 Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, 
                 me
             )
             print("[FLASK] Идем к финишу Vector(-11973, -1824, 640).")
-            
-            f.finished = true
-            f.is_active = false
+
+            f.finish_move_ordered = true
         end
     end
 end

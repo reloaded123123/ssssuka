@@ -6,12 +6,9 @@ local DOOR_POS = Vector(-14430, 11679, 640)
 local BOSS_POS = Vector(-14797, 13594, 512)
 local BOSS_NAME = "npc_dota_boss_tiny"
 local START_BUY_POS = Vector(-15316, 7880, 640)
-local MOON_SHARD_ITEM = "item_moon_shard"
-local MOON_SHARD_QB = "moon_shard"
 local LICH_HEART = "item_lich_heart"
 local MEDUSA_FINAL_ITEM = "item_trident_lua2"
-local OTHER_FINAL_ITEM = "item_dragon_lance_lua2"
-local MOON_SHARD_BUY_INTERVAL = 0.2
+local OTHER_FINAL_ITEM = "item_trident_lua2"
 local FINAL_ITEM_BUY_INTERVAL = 0.2
 
 local WAYPOINTS = {
@@ -65,16 +62,24 @@ local bossWasSeen = false
 local startupPhase = 0
 local startupDone = false
 local startupLastAction = 0
-local startupMoonBackpackSlot = -1
-local startupMoonActiveSlot = -1
-local startupNeedRestore = false
-local startupMoonQuickBuyReady = false
 local startupFinalQuickBuyReady = false
 local lichHeartHandled = false
-local level21DetectedByPoints = false
+local level25DetectedByPoints = false
 local lastSpellPointsCheckTime = 0
 local dropAxeAfterStashKey = false
 local lastAxeDropTime = 0
+local hadKeyPrev = false
+
+local PROTECTED_KEYWORDS_5L = {
+    "crit_blade", 
+    "book_of_knowledge", 
+    "universal", 
+    "doom_sword", 
+    "doom_spear", 
+    "dark_moon_shard", 
+    "item_lich_heart",
+    "quelling_blade"
+}
 
 local function GetGlobalPhase()
     if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
@@ -187,7 +192,7 @@ local function FindAxeForDrop(h)
         local it = NPC.GetItemByIndex(h, i)
         if it then
             local name = (Ability.GetName(it) or ""):lower()
-            if name:find("quelling") or name:find("bfury") or name:find("battlefury") then
+            if name:find("quelling") then
                 return it
             end
         end
@@ -291,6 +296,17 @@ local function FindNearestCombatEnemy(myHero, centerPos, radius, all_npcs)
     return best, bestDist
 end
 
+local function IsProtected(itemName)
+    if not itemName then return false end
+    itemName = itemName:lower()
+    for _, key in ipairs(PROTECTED_KEYWORDS_5L) do
+        if itemName:find(key) then
+            return true
+        end
+    end
+    return false
+end
+
 function script.OnUpdate()
     if GetGlobalPhase() ~= 7 then return end
 
@@ -302,9 +318,9 @@ function script.OnUpdate()
     if not myPos then return end
     local now = os.clock()
 
-    -- На 21 уровне (по спелл-поинтам, как в global_monitor) выбрасываем item_lich_heart.
+    -- При достижении 25 spell points (детект по сумме уровней абилок/талантов) выбрасываем item_lich_heart.
     if not lichHeartHandled then
-        if not level21DetectedByPoints and (now - lastSpellPointsCheckTime) > 1.5 then
+        if not level25DetectedByPoints and (now - lastSpellPointsCheckTime) > 1.5 then
             lastSpellPointsCheckTime = now
 
             local spent = 0
@@ -318,13 +334,13 @@ function script.OnUpdate()
                 end
             end
 
-            -- Порог события 21 уровня из global_monitor.
+            -- Порог события: 25 spell points.
             if spent >= 25 then
-                level21DetectedByPoints = true
+                level25DetectedByPoints = true
             end
         end
 
-        if level21DetectedByPoints then
+        if level25DetectedByPoints then
             local heart, _ = FindItemByNameInMainOrBackpack(h, LICH_HEART)
             if heart then
                 Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, heart, myPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
@@ -337,11 +353,30 @@ function script.OnUpdate()
         end
     end
 
+    -- Ключ появился в инвентаре: если это произошло в нычке, сразу выбрасываем топорик на землю.
+    -- Важно: делаем это ДО паузы, чтобы дроп не задерживался swap/pause логикой.
+    local keyInInv = HasKey(h)
+    local keyJustFound = keyInInv and not hadKeyPrev
+    hadKeyPrev = keyInInv
+
+    if keyInInv and (dropAxeAfterStashKey or (keyJustFound and isWaitingInStash)) and (now - lastAxeDropTime) >= 0.05 then
+        lastAxeDropTime = now
+        local axeItem = FindAxeForDrop(h)
+        if axeItem then
+            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, axeItem, myPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+            dropAxeAfterStashKey = false
+            pauseUntil = now + 0.1
+            return
+        end
+        dropAxeAfterStashKey = false
+    end
+
     if now < pauseUntil then return end
 
-    -- СТАРТОВАЯ ФАЗА: прийти в точку -> купить/съесть moon shard -> купить финальный предмет
+    -- СТАРТОВАЯ ФАЗА: прийти в точку -> купить item_trident_lua2 -> свап из ранца
     if not startupDone then
         if startupPhase == 0 then
+            -- Подходим к точке покупки
             local distToBuyPos = GetDistanceSafe(myPos, START_BUY_POS)
             if distToBuyPos > 150 then
                 if now - lastMove >= 0.35 then
@@ -354,105 +389,18 @@ function script.OnUpdate()
             end
             return
         elseif startupPhase == 1 then
-            if now - startupLastAction >= 0.35 then
-                Engine.ExecuteCommand("dota_clear_quickbuy")
-                SetQuickBuyCompat(MOON_SHARD_QB)
-                startupMoonQuickBuyReady = true
-                startupPhase = 2
-                startupLastAction = now
-            end
-            return
-        elseif startupPhase == 2 then
-            local moon, _ = FindItemByNameInMainOrBackpack(h, MOON_SHARD_ITEM)
-            if moon then
-                startupPhase = 3
-                startupLastAction = now
-                return
-            end
-
-            if now - startupLastAction >= MOON_SHARD_BUY_INTERVAL then
-                if not startupMoonQuickBuyReady then
-                    Engine.ExecuteCommand("dota_clear_quickbuy")
-                    SetQuickBuyCompat(MOON_SHARD_QB)
-                    startupMoonQuickBuyReady = true
-                end
-                Engine.ExecuteCommand("dota_purchase_quickbuy")
-                startupLastAction = now
-            end
-            return
-        elseif startupPhase == 3 then
-            if now - startupLastAction < 0.35 then return end
-
-            local moon, moonSlot = FindItemByNameInMainOrBackpack(h, MOON_SHARD_ITEM)
-            if not moon then
-                -- Moon shard еще не собран: возвращаемся к фазе докупки
-                startupPhase = 2
-                return
-            end
-
-            if moonSlot <= 5 then
-                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_TARGET, h, Vector(0,0,0), moon, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                startupPhase = 5
-                startupLastAction = now
-                return
-            end
-
-            local activeSlot = FindFreeMainSlot(h)
-            if activeSlot == -1 then activeSlot = 0 end
-
-            startupMoonBackpackSlot = moonSlot
-            startupMoonActiveSlot = activeSlot
-            startupNeedRestore = NPC.GetItemByIndex(h, activeSlot) ~= nil
-
-            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, activeSlot, Vector(0,0,0), moon, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-            startupPhase = 4
-            startupLastAction = now
-            return
-        elseif startupPhase == 4 then
-            if now - startupLastAction < 0.35 then return end
-
-            local moonInMain = nil
-            for i = 0, 5 do
-                local it = NPC.GetItemByIndex(h, i)
-                if it and Ability.GetName(it) == MOON_SHARD_ITEM then
-                    moonInMain = it
-                    break
-                end
-            end
-
-            if moonInMain then
-                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_TARGET, h, Vector(0,0,0), moonInMain, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                startupPhase = 5
-                startupLastAction = now
-            end
-            return
-        elseif startupPhase == 5 then
-            if now - startupLastAction < 0.4 then return end
-
-            if startupNeedRestore and startupMoonBackpackSlot >= 6 and startupMoonActiveSlot >= 0 then
-                local displaced = NPC.GetItemByIndex(h, startupMoonBackpackSlot)
-                local activeNow = NPC.GetItemByIndex(h, startupMoonActiveSlot)
-                if displaced and (not activeNow) then
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, startupMoonActiveSlot, Vector(0,0,0), displaced, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                    startupLastAction = now
-                    startupNeedRestore = false
-                    return
-                end
-            end
-
-            Engine.ExecuteCommand("dota_clear_quickbuy")
-            SetQuickBuyCompat(GetFinalBuyItemName(h))
-            startupFinalQuickBuyReady = true
-            startupPhase = 6
-            startupLastAction = now
-            return
-        elseif startupPhase == 6 then
+            -- Покупаем item_trident_lua2
             if now - startupLastAction >= FINAL_ITEM_BUY_INTERVAL then
                 local finalItemName = GetFinalBuyItemName(h)
-                local finalItem, _ = FindItemByNameInMainOrBackpack(h, finalItemName)
+                local finalItem, itemSlot = FindItemByNameInMainOrBackpack(h, finalItemName)
 
                 if finalItem then
-                    startupPhase = 7
+                    if itemSlot <= 5 then
+                        startupPhase = 3
+                        startupLastAction = now
+                        return
+                    end
+                    startupPhase = 2
                     startupLastAction = now
                     return
                 end
@@ -466,14 +414,48 @@ function script.OnUpdate()
                 startupLastAction = now
             end
             return
-        elseif startupPhase == 7 then
+        elseif startupPhase == 2 then
+            -- Свап item_trident_lua2 из ранца в активный слот (0-5), не трогая protected-предметы.
+            local finalItemName = GetFinalBuyItemName(h)
+            local finalItem, itemSlot = FindItemByNameInMainOrBackpack(h, finalItemName)
+
+            if finalItem and itemSlot > 5 then
+                if now - startupLastAction >= 0.35 then
+                    local freeSlot = FindFreeMainSlot(h)
+                    if freeSlot >= 0 then
+                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, freeSlot, Vector(0,0,0), finalItem, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                        startupLastAction = now
+                        startupPhase = 3
+                        return
+                    end
+
+                    for i = 0, 5 do
+                        local it = NPC.GetItemByIndex(h, i)
+                        if it and not IsProtected(Ability.GetName(it)) then
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, i, Vector(0,0,0), finalItem, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            startupLastAction = now
+                            startupPhase = 3
+                            return
+                        end
+                    end
+
+                    -- Не нашли слот для свапа: просто завершаем, чтобы не зависнуть.
+                    startupPhase = 3
+                    startupLastAction = now
+                end
+                return
+            end
+
+            startupPhase = 3
+            startupLastAction = now
+            return
+        elseif startupPhase == 3 then
             startupDone = true
             pauseUntil = now + 0.2
             return
         end
     end
 
-    
     -- ПРОВЕРКА ХП
     local hpPct = Entity.GetHealth(h) / Entity.GetMaxHealth(h)
     if hpPct < 0.25 then
@@ -575,8 +557,7 @@ function script.OnUpdate()
         return
     end
 
-    -- 3. СКАН КЛЮЧА И ИНВЕНТАРЯ
-    local keyInInv = HasKey(h)
+    -- 3. СКАН ИНВЕНТАРЯ
     local qb = nil
     local qbSlot = -1
     local bf = nil

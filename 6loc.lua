@@ -361,25 +361,22 @@ function module.OnUpdate()
             local bestTarget = nil
             local minDist = 99999
             
-            local enemies = Entity.GetUnitsInRadius(h, 700, Enum.TeamType.TEAM_ENEMY)
-            for _, enemy in ipairs(enemies) do
-                if IsValidCombatEnemy(h, enemy) then
-                    local enemyName = NPC.GetUnitName(enemy)
-                    if ENEMY_LIST[enemyName] then
-                        local d = (myPos - Entity.GetAbsOrigin(enemy)):Length2D()
-                        if d < minDist then
-                            minDist = d
-                            bestTarget = enemy
+            -- Двигаемся по вейпоинтам всегда.
+            -- Деремся ТОЛЬКО с юнитами из ENEMY_LIST и только "по пути" (не на ключевой сдаче/ТП точках).
+            if not isMovingOnly then
+                local enemies = Entity.GetUnitsInRadius(h, 750, Enum.TeamType.TEAM_ENEMY)
+                for _, enemy in ipairs(enemies) do
+                    if IsValidCombatEnemy(h, enemy) then
+                        local enemyName = NPC.GetUnitName(enemy)
+                        if ENEMY_LIST[enemyName] then
+                            local d = (myPos - Entity.GetAbsOrigin(enemy)):Length2D()
+                            if d < minDist then
+                                minDist = d
+                                bestTarget = enemy
+                            end
                         end
                     end
                 end
-            end
-
-            -- Вперед не идем, пока рядом кто-то живой: сначала зачистка, потом маршрут.
-            local nearbyAnyEnemy, nearbyDist = FindNearestEnemyInRadius(h, myPos, isMovingOnly and 600 or 620)
-            if not bestTarget and nearbyAnyEnemy then
-                bestTarget = nearbyAnyEnemy
-                minDist = nearbyDist or minDist
             end
 
             if bestTarget then

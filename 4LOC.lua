@@ -4,7 +4,7 @@ local script = {}
 local TARGET_ITEM_NAME = "item_gem_shard" 
 local QUICKBUY_NAME = "gem_shard"          
 local SHOP_POS = Vector(-12952, -2939, 640)
-local MOON_SHARD_NAME = "dark_moon_shard"
+local MOON_SHARD_NAME = ""
 local MOON_SHARD_COUNT = 6
 local LICH_HEART = "item_lich_heart"
 
@@ -22,7 +22,7 @@ local PROTECTED_KEYWORDS = {
     "doom_sword", 
     "doom_spear", 
     "dark_moon_shard", 
-    "bfury",
+    "item_lich_heart",
     "quelling"
 }
 

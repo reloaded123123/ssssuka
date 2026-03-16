@@ -645,7 +645,13 @@ function script.OnUpdate()
                             local canStartNow = path_is_safe and (wait_time >= min_wait_time)
 
                             if isCW then
-                                canStartNow = canStartNow and (safe_window >= 0 and safe_window <= 0.12)
+                                if safe_window >= 0 and safe_window <= 0.12 then
+                                    canStartNow = canStartNow and true
+                                else
+                                    -- CW fallback: если окна нет, но путь безопасен, проверяем текущую позицию лазера
+                                    local current_stand_safe = not script.IsPositionInDangerZone(wp.stand, l_pos, d.last_yaw, d.omega, current_idx)
+                                    canStartNow = path_is_safe and (wait_time >= min_wait_time) and current_stand_safe
+                                end
                             else
                                 if safe_window >= 0 then
                                     canStartNow = canStartNow and (safe_window <= 0.18)
