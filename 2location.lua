@@ -18,14 +18,34 @@ local WAYPOINTS_L2 = {
     Vector(-9806, -5593, 512), Vector(-10616, -5822, 512), Vector(-11810, -5379, 512),
     Vector(-12805, -5235, 512), Vector(-11910, -6782, 512), Vector(-12893, -7878, 384),
     Vector(-13827, -7388, 384), Vector(-14352, -4895, 384), Vector(-15090, -6866, 384),
-    Vector(-15256, -5172, 384), Vector(-15552, -8385, 512), Vector(-10962, -8312, 512),
-    Vector(-10036, -7284, 512), -- 22
-    Vector(-8277, -4899, 384)   -- 23 (Босс)
+    Vector(-15256, -5172, 384), Vector(-15533, -7794, 384), 
+    Vector(-15552, -8385, 512), Vector(-10962, -8312, 512),
+    Vector(-10036, -7284, 512), -- 23
+    Vector(-8277, -4899, 384)   -- 24 (Босс)
 }
+
+local PLATE_POS = Vector(-14006, -4138, 512)
+local PLATE_WP = 19
 
 local currentWP = 1
 local lastMoveTime = 0
 local bossWasSeen = false
+local lastTreeCut = 0
+local plateDone = false
+local onPlateStep = false
+
+local function FindCutterItem(hero)
+    for i = 0, 8 do
+        local it = NPC.GetItemByIndex(hero, i)
+        if it then
+            local name = (Ability.GetName(it) or ""):lower()
+            if name:find("quelling") or name:find("bfury") or name:find("battlefury") then
+                return it, i
+            end
+        end
+    end
+    return nil, -1
+end
 
 function script.OnUpdate()
     if GlobalPhase ~= 2 then return end
@@ -65,7 +85,7 @@ function script.OnUpdate()
             if name == BOSS_NAME then
                 bossWasSeen = true
                 bossAliveNow = true
-                local bossSearchDist = (routeFinished or currentWP >= 23) and 1800 or 400
+                local bossSearchDist = (routeFinished or currentWP >= 24) and 1800 or 400
                 if distToHero <= bossSearchDist then
                     bossTarget = npc
                 end
@@ -96,6 +116,67 @@ function script.OnUpdate()
         return
     end
 
+    -- 2.5. ПЛИТА С РУБКОЙ ДЕРЕВЬЕВ
+    if onPlateStep then
+        local distToPlate = (myPos - PLATE_POS):Length2D()
+        if distToPlate > 50 then
+            -- Сначала убиваем врагов рядом
+            local nearEnemy = nil
+            for i = 1, #allNPCs do
+                local npc = allNPCs[i]
+                if npc and Entity.IsAlive(npc) and not Entity.IsSameTeam(myHero, npc) and not Entity.IsDormant(npc) then
+                    local npcPos = Entity.GetAbsOrigin(npc)
+                    local d = (npcPos - myPos):Length2D()
+                    local name = NPC.GetUnitName(npc)
+                    if d <= 500 and (TARGET_UNITS[name] or name == CRATE_NAME) then
+                        nearEnemy = npc
+                        break
+                    end
+                end
+            end
+
+            if nearEnemy then
+                Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, nearEnemy, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
+                return
+            end
+
+            if now - lastMoveTime >= 0.15 then
+                local cutter, cSlot = FindCutterItem(myHero)
+                local activeCutter = (cutter and cSlot <= 5) and cutter or nil
+
+                local trees = Trees.InRadius(myPos, 380, true)
+                local bestTree = nil
+                local minTreeDist = 999
+                local dirToPlate = (PLATE_POS - myPos):Normalized()
+
+                for _, tree in pairs(trees) do
+                    local treePos = Entity.GetAbsOrigin(tree)
+                    local dirToTree = (treePos - myPos):Normalized()
+                    local distToTree = (myPos - treePos):Length2D()
+                    local dot = dirToTree:Dot(dirToPlate)
+                    if dot > -0.17 then
+                        if distToTree < minTreeDist then
+                            minTreeDist = distToTree
+                            bestTree = tree
+                        end
+                    end
+                end
+
+                if activeCutter and Ability.IsReady(activeCutter) and bestTree and (now - lastTreeCut >= 0.8) then
+                    Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_TARGET_TREE, Entity.GetIndex(bestTree), Vector(0,0,0), activeCutter, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
+                    lastTreeCut = now
+                else
+                    Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, PLATE_POS, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
+                end
+                lastMoveTime = now
+            end
+        else
+            onPlateStep = false
+            plateDone = true
+        end
+        return
+    end
+
     -- 3. ДВИЖЕНИЕ
     local distToWP = (myPos - targetPos):Length2D()
 
@@ -105,6 +186,11 @@ function script.OnUpdate()
             lastMoveTime = now
         end
     else
+        -- При достижении WP19 запускаем плиту
+        if currentWP == PLATE_WP and not plateDone then
+            onPlateStep = true
+            return
+        end
         currentWP = currentWP + 1
     end
 end

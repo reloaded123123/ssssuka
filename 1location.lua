@@ -15,8 +15,10 @@ local OTHER_UNITS = {
 local BOSS_NAME = "npc_dota_boss_ursa"
 local AGGRO_RADIUS = 400
 local CHASE_RADIUS = 900
-local BOSS_WP_INDEX = 23
-local MINION_WP_INDEX = 24
+local BOSS_WP_INDEX = 24
+local MINION_WP_INDEX = 25
+local SHOP_WP_INDEX = 23
+local DARK_MOON_SHARD = "item_dark_moon_shard"
 
 -- Твои вейпоинты
 local WAYPOINTS = {
@@ -27,9 +29,10 @@ local WAYPOINTS = {
     Vector(-8295, -11974, 640), Vector(-7437, -12970, 640), Vector(-9654, -13303, 512),
     Vector(-9784, -13968, 512), Vector(-10308, -14249, 512), Vector(-10902, -14663, 512),
     Vector(-11483, -14052, 384), Vector(-11259, -13364, 384), Vector(-10922, -12671, 256),
-    Vector(-12377, -13102, 384), 
-    Vector(-12432, -11892, 512), -- 23 (Босс)
-    Vector(-11541, -11240, 512)  -- 24 (Подсосы)
+    Vector(-12377, -13102, 384),
+    Vector(-14037, -14737, 512),  -- 23 (Магазин)
+    Vector(-12432, -11892, 512),  -- 24 (Босс)
+    Vector(-11541, -11240, 512)   -- 25 (Подсосы)
 }
 
 local currentWP = 1
@@ -42,6 +45,9 @@ local lockedTargetName = nil
 local bossKilled = false
 local flaskMovedToBackpack = false
 local lastFlaskMoveTry = 0
+local shardBought = false
+local shardQuickBuyReady = false
+local lastShardBuyTime = 0
 
 local function IsValidEnemy(myHero, npc)
     return npc and Entity.IsAlive(npc) and not Entity.IsDormant(npc) and not Entity.IsSameTeam(myHero, npc)
@@ -54,8 +60,30 @@ local function CanChaseTarget(myPos, npc)
     return (npcPos - myPos):Length2D() <= CHASE_RADIUS
 end
 
+local function FindItemByName(hero, itemName)
+    for i = 0, 8 do
+        local it = NPC.GetItemByIndex(hero, i)
+        if it and Ability.GetName(it) == itemName then
+            return it, i
+        end
+    end
+    return nil, -1
+end
+
+local function SetQuickBuyCompat(itemName)
+    if not itemName or not Engine then return end
+    local qbName = itemName
+    if itemName:sub(1, 5) == "item_" then
+        qbName = itemName:sub(6)
+    end
+    if type(Engine.SetQuickBuy) == "function" then Engine.SetQuickBuy(qbName, true) end
+    if type(Engine.SetQuikbuy) == "function" then Engine.SetQuikbuy(qbName, true) end
+    if type(Engine.SetQuikBuy) == "function" then Engine.SetQuikBuy(qbName, true) end
+    Engine.ExecuteCommand("dota_quickbuy " .. qbName)
+end
+
 function script.OnUpdate()
-    if GlobalPhase ~= 1 then return end
+    if _G.GlobalPhase ~= 1 then return end
 
     local myHero = Heroes.GetLocal()
     if not myHero or not Entity.IsAlive(myHero) then return end
@@ -100,7 +128,7 @@ function script.OnUpdate()
     end
 
     if currentWP > #WAYPOINTS then
-        GlobalPhase = 2
+        _G.GlobalPhase = 2
         return
     end
 
@@ -204,6 +232,35 @@ function script.OnUpdate()
         print("Квестовых убито: " .. killedQuestCount .. "/11")
     end
 
+    -- 3.5. ПОДБОР МЕШОЧКОВ ЗОЛОТА (наступаем на них)
+    local bestGold = nil
+    local bestGoldDist = 500
+    for i = 1, #physicalItems do
+        local pItem = physicalItems[i]
+        if pItem and not Entity.IsDormant(pItem) then
+            local itemEntity = PhysicalItem.GetItem(pItem)
+            if itemEntity then
+                local itemName = Ability.GetName(itemEntity)
+                if itemName and itemName:find("bag_of_gold") then
+                    local itemPos = Entity.GetAbsOrigin(pItem)
+                    if itemPos then
+                        local d = (itemPos - myPos):Length2D()
+                        if d < bestGoldDist then
+                            bestGoldDist = d
+                            bestGold = itemPos
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if bestGold and now - lastMoveTime > 0.3 then
+        Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, bestGold, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
+        lastMoveTime = now
+        return
+    end
+
     -- 4. ДВИЖЕНИЕ ПО ВЕЙПОИНТАМ
     local targetPos = WAYPOINTS[currentWP]
 
@@ -227,6 +284,25 @@ function script.OnUpdate()
         if currentWP == MINION_WP_INDEX and not bossKilled then
             currentWP = BOSS_WP_INDEX
             return
+        end
+
+        -- Покупка dark_moon_shard на шоп-вейпоинте
+        if currentWP == SHOP_WP_INDEX and not shardBought then
+            local shard, _ = FindItemByName(myHero, DARK_MOON_SHARD)
+            if shard then
+                shardBought = true
+            else
+                if now - lastShardBuyTime >= 0.2 then
+                    if not shardQuickBuyReady then
+                        Engine.ExecuteCommand("dota_clear_quickbuy")
+                        SetQuickBuyCompat(DARK_MOON_SHARD)
+                        shardQuickBuyReady = true
+                    end
+                    Engine.ExecuteCommand("dota_purchase_quickbuy")
+                    lastShardBuyTime = now
+                end
+                return
+            end
         end
 
         currentWP = currentWP + 1

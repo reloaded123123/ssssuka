@@ -261,7 +261,7 @@ local function FindFinalItem(hero)
 end
 
 function module.OnUpdate()
-    if GlobalPhase ~= 8 then return end
+    if _G.GlobalPhase ~= 8 then return end
 
     
     local h = Heroes.GetLocal()
@@ -329,7 +329,7 @@ function module.OnUpdate()
             if currentSecondStage == "TP_TO_WAIT" then currentSecondStage = "MOVING_TO_WAIT_POS" end
             if currentSecondStage == "TP_TO_BOSS" then currentSecondStage = "BOSS_FIGHT" end
             if currentSecondStage == "TP_TO_FINAL" then 
-                GlobalPhase = 9
+                _G.GlobalPhase = 9
                 currentSecondStage = "FINISHED" 
             end
             return 

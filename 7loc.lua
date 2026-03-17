@@ -122,7 +122,7 @@ end
 -- === ОСНОВНАЯ ЛОГИКА ОБНОВЛЕНИЯ ===
 
 function script.OnUpdate()
-    if GlobalPhase ~= 9 then return end
+    if _G.GlobalPhase ~= 9 then return end
 
    
     local myHero = Heroes.GetLocal()
@@ -278,7 +278,7 @@ function script.OnUpdate()
     elseif script.state == "BOSS_FIGHT" then
         local soul, _ = script.FindItemInInventory(myHero, script.BOSS_SOUL_NAME)
         if soul then
-            GlobalPhase = 10
+            _G.GlobalPhase = 10
             return
         end
 

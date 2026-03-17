@@ -81,7 +81,7 @@ return {
     end,
 
     OnUpdate = function()
-        if GlobalPhase ~= 5 then return end
+        if _G.GlobalPhase ~= 5 then return end
 
         -- Если мы уже закончили — ничего не делаем
         if solver.done then return end
@@ -101,7 +101,7 @@ return {
                 -- Пришли, дали стоп и забыли
                 Player.PrepareUnitOrders(solver.player, 8, nil, nil, nil, 2, solver.hero, false, false, false, false, nil, false)
                 print("[DIAG] Финальная точка достигнута. Отключаюсь.")
-                GlobalPhase = 6
+                _G.GlobalPhase = 6
                 solver.done = true
             end
             return

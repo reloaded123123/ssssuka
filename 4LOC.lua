@@ -218,7 +218,7 @@ local function IsNearForbiddenSheepPoint(pos)
 end
 
 function script.OnUpdate()
-    if GlobalPhase ~= 6 then return end
+    if _G.GlobalPhase ~= 6 then return end
 
    
     local h = Hero()
@@ -401,7 +401,7 @@ function script.OnUpdate()
                     end
                 end
             else
-                GlobalPhase = 7
+                _G.GlobalPhase = 7
                 return
             end
             return

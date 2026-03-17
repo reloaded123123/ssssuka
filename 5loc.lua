@@ -74,6 +74,7 @@ local lastAxeDropTime = 0
 local hadKeyPrev = false
 local lastMoveTarget = nil
 local lastMoveTargetDist = 999999
+local lastDodgeTime = 0
 
 local PROTECTED_KEYWORDS_5L = {
     "crit_blade", 
@@ -304,7 +305,7 @@ local function IsProtected(itemName)
 end
 
 function script.OnUpdate()
-    if GlobalPhase ~= 7 then return end
+    if _G.GlobalPhase ~= 7 then return end
 
     local h = Hero()
     if not h or not Entity.IsAlive(h) then return end
@@ -390,10 +391,30 @@ function script.OnUpdate()
             end
             return
         elseif startupPhase == 1 then
-            -- Покупаем Moon Shard и съедаем
+            -- Покупаем Moon Shard, свапаем в активный слот и съедаем
             if not moonShardConsumed then
                 local ms, msSlot = FindItemByNameInMainOrBackpack(h, MOON_SHARD)
                 if ms then
+                    if msSlot > 5 then
+                        -- Свапаем из ранца в активный слот
+                        if now - startupLastAction >= 0.35 then
+                            local freeSlot = FindFreeMainSlot(h)
+                            if freeSlot >= 0 then
+                                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, freeSlot, Vector(0,0,0), ms, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            else
+                                for i = 0, 5 do
+                                    local it = NPC.GetItemByIndex(h, i)
+                                    if it and not IsProtected(Ability.GetName(it)) then
+                                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, i, Vector(0,0,0), ms, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                                        break
+                                    end
+                                end
+                            end
+                            startupLastAction = now
+                        end
+                        return
+                    end
+                    -- Уже в активном слоте — съедаем
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_TARGET, h, Vector(0,0,0), ms, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     moonShardConsumed = true
                     startupLastAction = now
@@ -539,47 +560,97 @@ function script.OnUpdate()
         return 
     end
 
-    -- 2. ДОДЖ СТРЕЛ
+    -- 2. ДОДЖ СТРЕЛ (все снаряды, не только ближайший)
     local linears = {}
     if LinearProjectiles and LinearProjectiles.GetAll then
         linears = LinearProjectiles.GetAll()
     end
-    
-    local closestProj = nil
-    local closestDist = 99999
-    local closestProjDir = nil
-    
+
+    local dangerousProjs = {}
     for _, proj in pairs(linears) do
         if proj and proj.position and proj.velocity then
             local projPos = proj.position
             local distToProj = GetDistanceSafe(myPos, projPos)
-            
-            if distToProj < 1500 and distToProj < closestDist then
+            if distToProj < 1500 then
                 local vel = proj.velocity
                 if vel and (vel.x ~= 0 or vel.y ~= 0) then
-                    local dirToHero = (myPos - projPos):Normalized()
                     local projDir = Vector(vel.x, vel.y, 0):Normalized()
+                    local dirToHero = (myPos - projPos):Normalized()
                     local dot = dirToHero:Dot(projDir)
-                    
                     if dot > 0 then
-                        closestDist = distToProj
-                        closestProj = projPos
-                        closestProjDir = projDir
+                        local toHero = myPos - projPos
+                        local proj_along = toHero:Dot(projDir)
+                        local perpSq = math.max(0, distToProj * distToProj - proj_along * proj_along)
+                        local perpDist = math.sqrt(perpSq)
+                        if perpDist < 300 then
+                            table.insert(dangerousProjs, {
+                                pos = projPos,
+                                dir = projDir,
+                                dist = distToProj,
+                                perp = perpDist
+                            })
+                        end
                     end
                 end
             end
         end
     end
-    
-    if closestProj and closestProjDir then
-        local perpDir = Vector(-closestProjDir.y, closestProjDir.x, 0):Normalized()
-        local dodgeDist = 65
-        local dodgeSide = 1
-        perpDir = perpDir * dodgeSide
-        local targetPos = myPos + perpDir * dodgeDist
-        
+
+    if #dangerousProjs > 0 then
+        local dodgeVec = Vector(0, 0, 0)
+        for _, p in ipairs(dangerousProjs) do
+            local perpDir = Vector(-p.dir.y, p.dir.x, 0):Normalized()
+            local toHero = myPos - p.pos
+            local side = toHero.x * (-p.dir.y) + toHero.y * p.dir.x
+            if side < 0 then perpDir = perpDir * (-1) end
+            local weight = 1.0 + (1500 - p.dist) / 500
+            dodgeVec = dodgeVec + perpDir * weight
+        end
+        local dodgeDir = dodgeVec:Normalized()
+        local dodgeDist = 50 + #dangerousProjs * 15
+        if dodgeDist > 120 then dodgeDist = 120 end
+        local targetPos = myPos + dodgeDir * dodgeDist
+
         Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, targetPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+        lastMove = now
+        lastDodgeTime = now
         return
+    end
+
+    -- 2.5. ПОСЛЕ ДОДЖА — ищем и атакуем стрелка в расширенном радиусе (800)
+    if (now - lastDodgeTime) < 2.0 then
+        local shooter, shooterDist = FindNearestCombatEnemy(h, myPos, 800, all_npcs)
+        if shooter then
+            local shooterPos = Entity.GetAbsOrigin(shooter)
+            local standoff = GetAttackStandoff(h)
+            if shooterPos and shooterDist > standoff then
+                if now - lastMove >= 0.25 then
+                    local attackPos = myPos + (shooterPos - myPos):Normalized() * (shooterDist - standoff)
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, attackPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    lastMove = now
+                end
+            else
+                if now - lastMove >= 0.25 then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, shooter, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                    lastMove = now
+                end
+            end
+            return
+        end
+    end
+
+    -- 2.7. КАСТ 2 СКИЛЛА (W) при мане < 20%
+    local manaPct = NPC.GetMana(h) / NPC.GetMaxMana(h)
+    if manaPct < 0.20 then
+        local abilW = NPC.GetAbilityByIndex(h, 1)
+        if abilW and Ability.IsReady(abilW) and Ability.GetLevel(abilW) > 0 then
+            local castTarget, _ = FindNearestCombatEnemy(h, myPos, 800, all_npcs)
+            if castTarget then
+                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_TARGET, castTarget, Vector(0,0,0), abilW, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                lastMove = now
+                return
+            end
+        end
     end
 
     -- 3. СКАН ИНВЕНТАРЯ
@@ -633,7 +704,7 @@ function script.OnUpdate()
 
     
     if bossWasSeen and not bossAliveNow then
-        GlobalPhase = 8
+        _G.GlobalPhase = 8
         return
     end
 

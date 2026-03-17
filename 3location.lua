@@ -40,12 +40,12 @@ local WAYPOINT_POST_DELAYS = {
     [7]  = 1.2,   -- trap5 (2)
     [8]  = 1.2,   -- trap5 (3 + лазер)
     [9]  = 0.40,   -- trap5 (4)
-    [11] = 0.80,   -- trap6 (1)
+    [11] = 0.90,   -- trap6 (1)
     [12] = 0.25,   -- trap7
     [13] = 0.50,   -- trap6 (2)
     [15] = 0.50,   -- trap6 (3)
     [16] = 0.36,   -- trap8
-    [19] = 0.55,   -- trap9
+    [19] = 0.70,   -- trap9
 }
 
 local DEFAULT_WAYPOINT_DELAY = 0.30
@@ -295,10 +295,10 @@ local traps_logic = {
 local traversalCompleted = false
 
 function script.OnUpdate()
-    if GlobalPhase ~= 3 then return end
+    if _G.GlobalPhase ~= 3 then return end
 
     if traversalCompleted then
-        GlobalPhase = 4
+        _G.GlobalPhase = 4
         return
     end
 

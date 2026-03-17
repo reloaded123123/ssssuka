@@ -52,21 +52,22 @@ function script.OnUpdate()
             local isMedusa = NPC.GetUnitName(state.myHero) == "npc_dota_hero_medusa"
 
             -- Порядок по тиру 10/15/20/25:
-            -- Medusa: ПРАВЫЙ, ЛЕВЫЙ, ПРАВЫЙ, ЛЕВЫЙ -> 2,3,6,7
-            -- Остальные: ПРАВЫЙ, ЛЕВЫЙ, ПРАВЫЙ, ПРАВЫЙ -> 2,3,6,8
+            -- Пары: [1]=правый,[2]=левый / [3]=правый,[4]=левый / [5]=правый,[6]=левый / [7]=правый,[8]=левый
+            -- Medusa: ПРАВЫЙ, ЛЕВЫЙ, ПРАВЫЙ, ЛЕВЫЙ -> 1,4,5,8
+            -- Остальные: ПРАВЫЙ, ЛЕВЫЙ, ПРАВЫЙ, ПРАВЫЙ -> 1,4,5,7
             if isMedusa then
                 state.talent_targets = {
-                    all_talents[2],
-                    all_talents[3],
-                    all_talents[6],
-                    all_talents[7]
+                    all_talents[1],
+                    all_talents[4],
+                    all_talents[5],
+                    all_talents[8]
                 }
             else
                 state.talent_targets = {
-                    all_talents[2],
-                    all_talents[3],
-                    all_talents[6],
-                    all_talents[8]
+                    all_talents[1],
+                    all_talents[4],
+                    all_talents[5],
+                    all_talents[7]
                 }
             end
         end

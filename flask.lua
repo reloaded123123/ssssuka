@@ -229,7 +229,7 @@ end
 
 return {
     OnUpdate = function()
-        if GlobalPhase ~= 4 then return end
+        if _G.GlobalPhase ~= 4 then return end
 
         local me = Heroes.GetLocal()
         if not me or not Entity.IsAlive(me) then return end
@@ -241,7 +241,7 @@ return {
         bsa_final.HandleFlask(me, p, hero_pos)
 
         if bsa_final.flask_logic.finished then
-            GlobalPhase = 5
+            _G.GlobalPhase = 5
         end
     end
 }
