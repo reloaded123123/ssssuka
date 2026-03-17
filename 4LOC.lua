@@ -1,8 +1,5 @@
 local script = {}
 
-local PHASE_ID = 6
-local NEXT_PHASE_ID = 7
-
 -- НОВЫЕ ДАННЫЕ ИЗ ТВОЕГО ЗАПРОСА
 local TARGET_ITEM_NAME = "item_gem_shard" 
 local QUICKBUY_NAME = "gem_shard"          
@@ -84,16 +81,6 @@ local cutterSwapTargetSlot = -1
 local cutterSwapLastAction = 0
 local plateCutterReady = false
 local plateNeedRestore = false
-
-local function GetGlobalPhase()
-    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
-    return GlobalPhase
-end
-
-local function SetGlobalPhase(v)
-    if _G then _G.GlobalPhase = v end
-    GlobalPhase = v
-end
 
 local function Hero() 
     return Heroes.GetLocal() 
@@ -231,7 +218,7 @@ local function IsNearForbiddenSheepPoint(pos)
 end
 
 function script.OnUpdate()
-    if GetGlobalPhase() ~= PHASE_ID then return end
+    if GlobalPhase ~= 6 then return end
 
    
     local h = Hero()
@@ -414,7 +401,7 @@ function script.OnUpdate()
                     end
                 end
             else
-                SetGlobalPhase(NEXT_PHASE_ID)
+                GlobalPhase = 7
                 return
             end
             return

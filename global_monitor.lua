@@ -1,7 +1,6 @@
 local monitor = {}
 
-if _G == nil then _G = {} end
-if _G.GlobalPhase == nil then _G.GlobalPhase = 1 end
+if not GlobalPhase then GlobalPhase = 1 end
 
 local last_restart_file_time = 0
 local last_cam_check = 0
@@ -49,7 +48,7 @@ local function run_ahk_script()
     if f then 
         f:close() 
         last_restart_file_time = os.clock()
-        _G.GlobalPhase = 1 
+        GlobalPhase = 1 
         -- ТАЙМЕР 70 СЕКУНД
         log_time_restart = os.time() + 100
         print("[MONITOR] restart.please создан. Лог будет через 70 сек.")
@@ -145,7 +144,7 @@ function monitor.OnUpdate()
         end
     end
     
-    if _G.GlobalPhase == "FINISHED" then
+    if GlobalPhase == "FINISHED" then
         run_ahk_script()
     end
 end

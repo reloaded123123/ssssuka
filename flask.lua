@@ -11,9 +11,6 @@ local Vector = Vector
 
 local FINISH_POS = Vector(-11973, -1824, 640)
 
-local PHASE_ID = 4
-local NEXT_PHASE_ID = 5
-
 local bsa_final = {
     flask_logic = {
         is_active = true,       
@@ -38,16 +35,6 @@ local axe_items = {
     ["item_bfury"] = true,
     ["item_battlefury"] = true
 }
-
-local function GetGlobalPhase()
-    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
-    return GlobalPhase
-end
-
-local function SetGlobalPhase(v)
-    if _G then _G.GlobalPhase = v end
-    GlobalPhase = v
-end
 
 local function IsTargetItem(item)
     if not item then return false end
@@ -242,7 +229,7 @@ end
 
 return {
     OnUpdate = function()
-        if GetGlobalPhase() ~= PHASE_ID then return end
+        if GlobalPhase ~= 4 then return end
 
         local me = Heroes.GetLocal()
         if not me or not Entity.IsAlive(me) then return end
@@ -254,7 +241,7 @@ return {
         bsa_final.HandleFlask(me, p, hero_pos)
 
         if bsa_final.flask_logic.finished then
-            SetGlobalPhase(NEXT_PHASE_ID)
+            GlobalPhase = 5
         end
     end
 }

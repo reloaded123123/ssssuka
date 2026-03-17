@@ -1,8 +1,5 @@
 local script = {}
 
-local PHASE_ID = 2
-local NEXT_PHASE_ID = 3
-
 -- Настройки целей Локация 2
 local TARGET_UNITS = {
     ["npc_dota_zone_2_unit_2"] = true,
@@ -30,18 +27,8 @@ local currentWP = 1
 local lastMoveTime = 0
 local bossWasSeen = false
 
-local function GetGlobalPhase()
-    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
-    return GlobalPhase
-end
-
-local function SetGlobalPhase(v)
-    if _G then _G.GlobalPhase = v end
-    GlobalPhase = v
-end
-
 function script.OnUpdate()
-    if GetGlobalPhase() ~= PHASE_ID then return end
+    if GlobalPhase ~= 2 then return end
 
     local myHero = Heroes.GetLocal()
     if not myHero or not Entity.IsAlive(myHero) then return end
@@ -92,7 +79,7 @@ function script.OnUpdate()
     end
 
     if routeFinished and bossWasSeen and not bossAliveNow then
-        SetGlobalPhase(NEXT_PHASE_ID)
+        GlobalPhase = 3
         return
     end
 

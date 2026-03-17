@@ -26,9 +26,6 @@ local POS_TOL = 70
 local PLATE_TOL = 70 
 local ATTACK_INTERVAL = 0.8 
 
-local PHASE_ID = 5
-local NEXT_PHASE_ID = 6
-
 local solver = {
     hero = nil,
     player = nil,
@@ -39,16 +36,6 @@ local solver = {
     is_positioned = false,
     done = false -- Мягкий стоп логики
 }
-
-local function GetGlobalPhase()
-    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
-    return GlobalPhase
-end
-
-local function SetGlobalPhase(v)
-    if _G then _G.GlobalPhase = v end
-    GlobalPhase = v
-end
 
 local function Dist2D(p1, p2)
     if not p1 or not p2 then return 9999 end
@@ -94,7 +81,7 @@ return {
     end,
 
     OnUpdate = function()
-        if GetGlobalPhase() ~= PHASE_ID then return end
+        if GlobalPhase ~= 5 then return end
 
         -- Если мы уже закончили — ничего не делаем
         if solver.done then return end
@@ -114,7 +101,7 @@ return {
                 -- Пришли, дали стоп и забыли
                 Player.PrepareUnitOrders(solver.player, 8, nil, nil, nil, 2, solver.hero, false, false, false, false, nil, false)
                 print("[DIAG] Финальная точка достигнута. Отключаюсь.")
-                SetGlobalPhase(NEXT_PHASE_ID)
+                GlobalPhase = 6
                 solver.done = true
             end
             return

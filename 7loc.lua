@@ -1,7 +1,4 @@
 local script = {}
-
-local PHASE_ID = 9
-local NEXT_PHASE_ID = 10
 --сосал?
 -- === НАСТРОЙКИ И КОНСТАНТЫ ===
 script.target_names = { "npc_dota_zone_6_unit_3", "npc_dota_zone_6_unit_3", "npc_dota_zone_6_unit_1", "npc_dota_zone_6_unit_2", "npc_dota_zone_6_unit_4" }
@@ -65,16 +62,6 @@ script.lastHealth = 0
 script.waitStartTime = 0 
 script.lastLoggedState = ""
 
-local function GetGlobalPhase()
-    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
-    return GlobalPhase
-end
-
-local function SetGlobalPhase(v)
-    if _G then _G.GlobalPhase = v end
-    GlobalPhase = v
-end
-
 -- === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 
 local function GetKnives(h)
@@ -135,7 +122,7 @@ end
 -- === ОСНОВНАЯ ЛОГИКА ОБНОВЛЕНИЯ ===
 
 function script.OnUpdate()
-    if GetGlobalPhase() ~= PHASE_ID then return end
+    if GlobalPhase ~= 9 then return end
 
    
     local myHero = Heroes.GetLocal()
@@ -291,7 +278,7 @@ function script.OnUpdate()
     elseif script.state == "BOSS_FIGHT" then
         local soul, _ = script.FindItemInInventory(myHero, script.BOSS_SOUL_NAME)
         if soul then
-            SetGlobalPhase(NEXT_PHASE_ID)
+            GlobalPhase = 10
             return
         end
 

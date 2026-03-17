@@ -1,8 +1,5 @@
 local module = {}
 
-local PHASE_ID = 8
-local NEXT_PHASE_ID = 9
-
 -- === КООРДИНАТЫ БЛОК 1 (ЛОВУШКИ И ИЛЛЮЗИИ) ===
 local START_PLATE  = Vector(-12752, 14417, 384) 
 local FINAL_TARGET = Vector(-10075, 14462, 384) 
@@ -197,6 +194,7 @@ local currentWP = 1
 local item_to_return = nil
 local target_slot = -1
 local setupDone = false
+local setupDoneShard = false
 local posBeforeTP = nil
 local allItemsReady = false 
 local secondBlockStarted = false
@@ -209,16 +207,6 @@ local bossTpCastTime = 0
 local bossTpStartPos = nil
 local lastSpellPointsCheckTime = 0
 local level21DetectedByPoints = false
-
-local function GetGlobalPhase()
-    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
-    return GlobalPhase
-end
-
-local function SetGlobalPhase(v)
-    if _G then _G.GlobalPhase = v end
-    GlobalPhase = v
-end
 
 local function IsValidCombatEnemy(me, enemy)
     return enemy
@@ -273,7 +261,7 @@ local function FindFinalItem(hero)
 end
 
 function module.OnUpdate()
-    if GetGlobalPhase() ~= PHASE_ID then return end
+    if GlobalPhase ~= 8 then return end
 
     
     local h = Heroes.GetLocal()
@@ -341,7 +329,7 @@ function module.OnUpdate()
             if currentSecondStage == "TP_TO_WAIT" then currentSecondStage = "MOVING_TO_WAIT_POS" end
             if currentSecondStage == "TP_TO_BOSS" then currentSecondStage = "BOSS_FIGHT" end
             if currentSecondStage == "TP_TO_FINAL" then 
-                SetGlobalPhase(NEXT_PHASE_ID)
+                GlobalPhase = 9
                 currentSecondStage = "FINISHED" 
             end
             return 
@@ -818,7 +806,25 @@ function module.OnUpdate()
                     Engine.ExecuteCommand("dota_purchase_quickbuy")
                     lastActionTime = now
                 end
-            else allItemsReady = true end
+                return
+            end
+            -- Покупаем dark_moon_shard после battlemage_2
+            local hasShard2 = NPC.GetItem(h, SHARD_NAME, true)
+            if knife and not hasShard2 and not item_to_return then
+                if not setupDoneShard then
+                    Engine.ExecuteCommand("dota_clear_quickbuy")
+                    Engine.SetQuickBuy(SHARD_NAME, true)
+                    setupDoneShard = true
+                end
+                if now - lastActionTime >= 0.2 then
+                    Engine.ExecuteCommand("dota_purchase_quickbuy")
+                    lastActionTime = now
+                end
+                return
+            end
+            if knife and not item_to_return then
+                allItemsReady = true
+            end
         end
 
         -- МАРШРУТ И КЛЮЧ

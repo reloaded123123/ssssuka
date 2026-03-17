@@ -1,8 +1,5 @@
 local script = {}
 
-local PHASE_ID = 1
-local NEXT_PHASE_ID = 2
-
 -- Настройки целей
 local QUEST_UNIT = "npc_dota_zone_1_unit_quest"
 local ITEM_TO_PICK = "item_quelling_blade" -- Название предмета для поиска
@@ -46,16 +43,6 @@ local bossKilled = false
 local flaskMovedToBackpack = false
 local lastFlaskMoveTry = 0
 
-local function GetGlobalPhase()
-    if _G and _G.GlobalPhase ~= nil then return _G.GlobalPhase end
-    return GlobalPhase
-end
-
-local function SetGlobalPhase(v)
-    if _G then _G.GlobalPhase = v end
-    GlobalPhase = v
-end
-
 local function IsValidEnemy(myHero, npc)
     return npc and Entity.IsAlive(npc) and not Entity.IsDormant(npc) and not Entity.IsSameTeam(myHero, npc)
 end
@@ -68,7 +55,7 @@ local function CanChaseTarget(myPos, npc)
 end
 
 function script.OnUpdate()
-    if GetGlobalPhase() ~= PHASE_ID then return end
+    if GlobalPhase ~= 1 then return end
 
     local myHero = Heroes.GetLocal()
     if not myHero or not Entity.IsAlive(myHero) then return end
@@ -113,7 +100,7 @@ function script.OnUpdate()
     end
 
     if currentWP > #WAYPOINTS then
-        SetGlobalPhase(NEXT_PHASE_ID)
+        GlobalPhase = 2
         return
     end
 
