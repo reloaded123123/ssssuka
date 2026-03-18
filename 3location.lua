@@ -40,7 +40,7 @@ local WAYPOINT_POST_DELAYS = {
     [7]  = 1.2,   -- trap5 (2)
     [8]  = 1.2,   -- trap5 (3 + лазер)
     [9]  = 0.40,   -- trap5 (4)
-    [11] = 0.90,   -- trap6 (1)
+    [11] = 1.0,   -- trap6 (1)
     [12] = 0.25,   -- trap7
     [13] = 0.50,   -- trap6 (2)
     [15] = 0.50,   -- trap6 (3)
@@ -347,37 +347,67 @@ function script.OnUpdate()
     end
 
     if wp.need_cut_tree and not d.tree_attempted then
+        -- Ищем деревья вокруг stand, вдоль пути stand→target, и между героем и stand
+        local trees_found = {}
+        local seen = {}
+        
+        local function AddTrees(pos, radius)
+            local near = Trees.InRadius(pos, radius, true)
+            if near then
+                for _, tree in ipairs(near) do
+                    local idx = Entity.GetIndex(tree)
+                    if not seen[idx] then
+                        seen[idx] = true
+                        table.insert(trees_found, tree)
+                    end
+                end
+            end
+        end
+        
+        -- Деревья вокруг stand и target
+        AddTrees(wp.stand, 300)
+        AddTrees(wp.target, 300)
+        
+        -- Деревья вдоль пути stand → target
         local path_vec = wp.target - wp.stand
-        local path_dir = path_vec:Normalized()
         local path_len = path_vec:Length2D()
-        local trees_on_path = {}
-        
         for i = 1, 20 do
-            local t = i / 20
-            local check_pos = wp.stand + path_dir * (path_len * t)
-            local near_trees = Trees.InRadius(check_pos, 200, true)
-            if near_trees and #near_trees > 0 then
-                for _, tree in ipairs(near_trees) do
-                    table.insert(trees_on_path, tree)
-                end
+            AddTrees(wp.stand + path_vec * (i / 20), 200)
+        end
+        
+        -- Деревья между текущей позицией героя и stand
+        local to_stand = wp.stand - my_pos
+        local to_stand_len = to_stand:Length2D()
+        if to_stand_len > 50 then
+            for i = 1, 10 do
+                AddTrees(my_pos + to_stand * (i / 10), 200)
             end
         end
         
-        local target_trees = Trees.InRadius(wp.target, 250, true)
-        if target_trees and #target_trees > 0 then
-            for _, tree in ipairs(target_trees) do
-                table.insert(trees_on_path, tree)
-            end
-        end
-        
-        if #trees_on_path > 0 then
-            local cutter = script.GetCullingItem(me)
-            if cutter then
-                Player.PrepareUnitOrders(Players.GetLocal(), Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_TARGET_TREE, Entity.GetIndex(trees_on_path[1]), Vector(0,0,0), cutter, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUED_BY_PLAYER, me)
-                d.tree_attempted = true
-                if wp.move_while_cutting then
-                    script.Move(me, wp.target)
+        if #trees_found > 0 then
+            -- Не ставим tree_attempted — будем пытаться каждый кадр пока деревья есть
+            if now - (d.last_tree_cut or 0) > 0.4 then
+                local cutter = script.GetCullingItem(me)
+                if cutter then
+                    -- Выбираем ближайшее дерево
+                    local best_tree = trees_found[1]
+                    local best_dist = (my_pos - Entity.GetAbsOrigin(trees_found[1])):Length2D()
+                    for j = 2, #trees_found do
+                        local td = (my_pos - Entity.GetAbsOrigin(trees_found[j])):Length2D()
+                        if td < best_dist then
+                            best_dist = td
+                            best_tree = trees_found[j]
+                        end
+                    end
+                    Player.PrepareUnitOrders(Players.GetLocal(), Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_TARGET_TREE, Entity.GetIndex(best_tree), Vector(0,0,0), cutter, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUED_BY_PLAYER, me)
+                    d.last_tree_cut = now
+                    if wp.move_while_cutting then
+                        script.Move(me, wp.target)
+                    end
+                    return -- Не перезаписываем приказ рубки движением к stand
                 end
+            else
+                return -- Ждём завершения рубки
             end
         else
             d.tree_attempted = true

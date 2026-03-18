@@ -158,7 +158,7 @@ local BOSS_TP_POS = OUTPOST_2_POS
 
 -- === КОНФИГУРАЦИЯ ===
 local SHARD_NAME   = "item_dark_moon_shard"
-local KNIFE_NAME   = "skadi_lua2"
+local KNIFE_NAME   = "battlemage_2"
 local RUNE_ILLUSION_NAME = "item_rune_illusions"
 local ILLUSION_RUNE_TYPE = 2 -- DOTA_RUNE_ILLUSION
 local ENEMY_LIST = {

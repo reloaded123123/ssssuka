@@ -35,7 +35,7 @@ local WAYPOINTS = {
     Vector(-15003, 8904, 512),   -- 20
     Vector(-14260, 9282, 640),   -- 21
     Vector(-15335, 10478, 640),  -- 22 [Нычка 4]
-    Vector(-14092, 10373, 640),  -- 23
+    Vector(-13152, 10656, 768),  -- 23
 }
 
 local STASH_WPS = { [4] = true, [7] = true, [10] = true, [22] = true }
@@ -75,6 +75,8 @@ local hadKeyPrev = false
 local lastMoveTarget = nil
 local lastMoveTargetDist = 999999
 local lastDodgeTime = 0
+local lastAttackTarget = nil
+local lastAttackTime = 0
 
 local PROTECTED_KEYWORDS_5L = {
     "crit_blade", 
@@ -364,8 +366,9 @@ function script.OnUpdate()
     if keyInInv and (dropAxeAfterStashKey or (keyJustFound and isWaitingInStash)) and (now - lastAxeDropTime) >= 0.05 then
         lastAxeDropTime = now
         local axeItem = FindAxeForDrop(h)
-        if axeItem then
-            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, nil, myPos, axeItem, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+        if axeItem and itemToRestoreSlot >= 0 then
+            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, itemToRestoreSlot, Vector(0,0,0), axeItem, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+            swapBackNeeded = false
             dropAxeAfterStashKey = false
             pauseUntil = now + 0.1
             return
@@ -630,8 +633,10 @@ function script.OnUpdate()
                     lastMove = now
                 end
             else
-                if now - lastMove >= 0.25 then
+                if shooter ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, shooter, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                    lastAttackTarget = shooter
+                    lastAttackTime = now
                     lastMove = now
                 end
             end
@@ -722,8 +727,10 @@ function script.OnUpdate()
             end
         else
             -- Уже на дистанции атаки - бьем
-            if now - lastMove >= 0.35 then
+            if bestTarget ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
                 Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, bestTarget, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                lastAttackTarget = bestTarget
+                lastAttackTime = now
                 lastMove = now
             end
         end
@@ -758,13 +765,14 @@ function script.OnUpdate()
         local distToWp = GetDistanceSafe(myPos, wpPos)
         local isStash = STASH_WPS[currentWaypoint]
 
-        -- ТОЛЬКО если ключ был поднят в нычке: сразу дропаем топорик на землю.
+        -- ТОЛЬКО если ключ был поднят в нычке: возвращаем топорик на место.
         if dropAxeAfterStashKey and keyInInv and (now - lastAxeDropTime) >= 0.25 then
             local axeItem = FindAxeForDrop(h)
             lastAxeDropTime = now
 
-            if axeItem then
-                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, nil, myPos, axeItem, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+            if axeItem and itemToRestoreSlot >= 0 then
+                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, itemToRestoreSlot, Vector(0,0,0), axeItem, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                swapBackNeeded = false
                 dropAxeAfterStashKey = false
                 return
             end
@@ -786,8 +794,10 @@ function script.OnUpdate()
                     lastMove = now
                 end
             else
-                if now - lastMove >= 0.25 then
+                if nearbyEnemy ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, nearbyEnemy, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                    lastAttackTarget = nearbyEnemy
+                    lastAttackTime = now
                     lastMove = now
                 end
             end
@@ -811,8 +821,10 @@ function script.OnUpdate()
                     lastMove = now
                 end
             else
-                if now - lastMove >= 0.3 then
+                if pathTarget ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, pathTarget, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                    lastAttackTarget = pathTarget
+                    lastAttackTime = now
                     lastMove = now
                 end
             end
@@ -833,8 +845,10 @@ function script.OnUpdate()
                     lastMove = now
                 end
             else
-                if now - lastMove >= 0.25 then
+                if enemyNearWp ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, enemyNearWp, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                    lastAttackTarget = enemyNearWp
+                    lastAttackTime = now
                     lastMove = now
                 end
             end
@@ -887,8 +901,10 @@ function script.OnUpdate()
                         lastMove = now
                     end
                 else
-                    if now - lastMove >= 0.25 then
+                    if stashEnemy ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
                         Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, stashEnemy, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                        lastAttackTarget = stashEnemy
+                        lastAttackTime = now
                         lastMove = now
                     end
                 end

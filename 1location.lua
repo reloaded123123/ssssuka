@@ -184,19 +184,20 @@ function script.OnUpdate()
         lockedTargetName = nil
     end
 
+    local searchRadius = bossLock and CHASE_RADIUS or AGGRO_RADIUS
     for i = 1, #allNPCs do
         local npc = allNPCs[i]
         if npc and Entity.IsAlive(npc) and not Entity.IsSameTeam(myHero, npc) and not Entity.IsDormant(npc) then
             local npcPos = Entity.GetAbsOrigin(npc)
             local distToHero = (npcPos - myPos):Length2D()
             
-            if distToHero <= AGGRO_RADIUS or (bossLock and NPC.GetUnitName(npc) == BOSS_NAME and distToHero <= CHASE_RADIUS) then
+            if distToHero <= searchRadius then
                 local name = NPC.GetUnitName(npc)
                 if name == QUEST_UNIT then
                     questTarget = npc
-                elseif name == BOSS_NAME and killedQuestCount >= 11 and not bossKilled then
+                elseif name == BOSS_NAME and not bossKilled then
                     bossTarget = npc
-                elseif OTHER_UNITS[name] and not bossLock then
+                elseif OTHER_UNITS[name] then
                     normalTarget = npc
                 end
             end
@@ -208,6 +209,10 @@ function script.OnUpdate()
     if bossLock then
         if bossTarget then
             activeTarget = bossTarget
+        elseif questTarget then
+            activeTarget = questTarget
+        elseif normalTarget then
+            activeTarget = normalTarget
         end
     elseif questTarget then
         activeTarget = questTarget

@@ -48,7 +48,7 @@ local function FindCutterItem(hero)
 end
 
 function script.OnUpdate()
-    if GlobalPhase ~= 2 then return end
+    if _G.GlobalPhase ~= 2 then return end
 
     local myHero = Heroes.GetLocal()
     if not myHero or not Entity.IsAlive(myHero) then return end
@@ -99,7 +99,7 @@ function script.OnUpdate()
     end
 
     if routeFinished and bossWasSeen and not bossAliveNow then
-        GlobalPhase = 3
+        _G.GlobalPhase = 3
         return
     end
 
