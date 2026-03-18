@@ -22,6 +22,10 @@ local function run_ahk_script()
         f:close() 
         last_restart_file_time = os.clock()
         _G.GlobalPhase = 1 
+        level_21_created = false
+        level_25_created = false
+        last_stuck_pos = nil
+        last_stuck_time = 0
         print("[MONITOR] restart.please создан.")
     end
 end
@@ -56,23 +60,31 @@ function monitor.OnUpdate()
         end
 
         if not level_21_created and spent >= 25 then
-            local f = io.open("C:\\dota_auto\\21.please", "w")
+            local f, err = io.open("C:\\dota_auto\\21.please", "w")
             if f then
                 f:write("21")
                 f:close()
                 level_21_created = true 
                 print("[MONITOR] 21.please создан.")
+            else
+                print("[MONITOR] ОШИБКА 21.please: " .. tostring(err))
             end
         end
 
         if not level_25_created and spent >= 27 then
-            local f = io.open("C:\\dota_auto\\25.please", "w")
+            local f, err = io.open("C:\\dota_auto\\25.please", "w")
             if f then
                 f:write("25")
                 f:close()
                 level_25_created = true 
                 print("[MONITOR] 25.please создан.")
+            else
+                print("[MONITOR] ОШИБКА 25.please: " .. tostring(err))
             end
+        end
+
+        if spent >= 20 then
+            print("[MONITOR] spent=" .. spent .. " 21_created=" .. tostring(level_21_created) .. " 25_created=" .. tostring(level_25_created))
         end
     end
 

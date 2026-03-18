@@ -195,6 +195,7 @@ local item_to_return = nil
 local target_slot = -1
 local setupDone = false
 local setupDoneShard = false
+local shardConsumed = false
 local posBeforeTP = nil
 local allItemsReady = false 
 local secondBlockStarted = false
@@ -767,13 +768,16 @@ function module.OnUpdate()
         if (myPos - KEY_TARGET_2):Length2D() <= 200 then
             local shard = NPC.GetItem(h, SHARD_NAME, true)
             local knife = FindFinalItem(h)
-            if shard then
+            
+            -- Потребляем шард (один раз)
+            if shard and not shardConsumed then
                 setupDone = false 
                 if now - lastActionTime > 1.0 then
                     local s_slot = -1
                     for i=0,8 do if NPC.GetItemByIndex(h, i) == shard then s_slot = i break end end
                     if s_slot <= 5 then
                         Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), shard, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                        shardConsumed = true
                         lastActionTime = now
                     else
                         local free = -1
@@ -808,19 +812,21 @@ function module.OnUpdate()
                 end
                 return
             end
-            -- Покупаем dark_moon_shard после battlemage_2
-            local hasShard2 = NPC.GetItem(h, SHARD_NAME, true)
-            if knife and not hasShard2 and not item_to_return then
-                if not setupDoneShard then
-                    Engine.ExecuteCommand("dota_clear_quickbuy")
-                    Engine.SetQuickBuy(SHARD_NAME, true)
-                    setupDoneShard = true
+            -- Покупаем dark_moon_shard после battlemage_2 (только если ещё не потребляли)
+            if knife and not shardConsumed and not item_to_return then
+                local hasShard2 = NPC.GetItem(h, SHARD_NAME, true)
+                if not hasShard2 then
+                    if not setupDoneShard then
+                        Engine.ExecuteCommand("dota_clear_quickbuy")
+                        Engine.SetQuickBuy(SHARD_NAME, true)
+                        setupDoneShard = true
+                    end
+                    if now - lastActionTime >= 0.2 then
+                        Engine.ExecuteCommand("dota_purchase_quickbuy")
+                        lastActionTime = now
+                    end
+                    return
                 end
-                if now - lastActionTime >= 0.2 then
-                    Engine.ExecuteCommand("dota_purchase_quickbuy")
-                    lastActionTime = now
-                end
-                return
             end
             if knife and not item_to_return then
                 allItemsReady = true
