@@ -60,7 +60,7 @@ function monitor.OnUpdate()
         end
 
         if not level_21_created and spent >= 25 then
-            local f, err = io.open("C:\\dota_auto\\21.please", "w")
+            local f, err = io.open("C:\\dota_auto\\scripts\\21.please", "w")
             if f then
                 f:write("21")
                 f:close()
@@ -72,7 +72,7 @@ function monitor.OnUpdate()
         end
 
         if not level_25_created and spent >= 27 then
-            local f, err = io.open("C:\\dota_auto\\25.please", "w")
+            local f, err = io.open("C:\\dota_auto\\scripts\\25.please", "w")
             if f then
                 f:write("25")
                 f:close()
