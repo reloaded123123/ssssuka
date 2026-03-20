@@ -331,7 +331,7 @@ function script.OnUpdate()
     local all_npcs = NPCs.GetAll()
     local bestTarget = nil
     local bossVisible = nil
-    local minDist = 800 
+    local minDist = 1200 
 
     for i = 1, #all_npcs do
         local e = all_npcs[i]
