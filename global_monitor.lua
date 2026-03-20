@@ -1,116 +1,146 @@
+--[[
+    ОБНОВЛЕННЫЙ МОНИТОР (АБСОЛЮТНЫЙ ПУТЬ)
+    Целевая папка: C:\dota_auto\scripts\
+    Полный код без сокращений, согласно вашим правилам.
+--]]
+
 local monitor = {}
 
+-- Инициализация глобальных переменных в окружении чита
 if _G == nil then _G = {} end
 if _G.GlobalPhase == nil then _G.GlobalPhase = 1 end
 
-local last_restart_file_time = 0
-local last_cam_check = 0
-local last_stuck_pos = nil
-local last_stuck_time = 0
-local last_level_check_time = 0
+-- ЖЕСТКО ЗАДАННЫЙ ПУТЬ (Убедитесь, что папка создана заранее)
+local TARGET_PATH = "C:\\dota_auto\\scripts\\"
 
-local level_21_created = false
-local level_25_created = false
+-- Переменные для отслеживания состояний и таймингов
+local last_restart_trigger = 0
+local last_camera_update = 0
+local last_pos_snapshot = nil
+local last_move_timestamp = 0
+local last_level_process_time = 0
 
-local function run_ahk_script()
-    if os.clock() - last_restart_file_time < 10.0 then
-        return
-    end
+-- Флаги однократного срабатывания для уровней
+local is_level_21_sent = false
+local is_level_25_sent = false
 
-    local f = io.open("C:\\dota_auto\\scripts\\restart.please", "w")
-    if f then 
-        f:close() 
-        last_restart_file_time = os.clock()
-        _G.GlobalPhase = 1 
-        level_21_created = false
-        level_25_created = false
-        last_stuck_pos = nil
-        last_stuck_time = 0
-        print("[MONITOR] restart.please создан.")
+-- Вспомогательная функция для безопасного создания файла по прямому пути
+local function WriteSignalFile(name)
+    local full_path = TARGET_PATH .. name
+    -- Попытка открыть файл в режиме "w" (перезапись/создание)
+    local file, err = io.open(full_path, "w")
+    
+    if file then
+        -- Записываем проверочную информацию
+        file:write("signal_active: " .. os.date("%H:%M:%S"))
+        file:flush()
+        file:close()
+        print("[MONITOR] Успех! Файл создан: " .. full_path)
+        return true
+    else
+        -- Если здесь снова Permission denied, значит права на папку C:\dota_auto\scripts не настроены
+        print("[MONITOR] КРИТИЧЕСКАЯ ОШИБКА ДОСТУПА: " .. tostring(err))
+        return false
     end
 end
 
-local function CameraFollow()
-    if os.clock() - last_cam_check > 2.0 then
+-- Функция инициализации рестарта (взаимодействие с AHK)
+local function TriggerRestart()
+    local current_clock = os.clock()
+    
+    -- Ограничение: не чаще одного раза в 10 секунд
+    if current_clock - last_restart_trigger < 10.0 then
+        return
+    end
+
+    if WriteSignalFile("restart.please") then
+        last_restart_trigger = current_clock
+        _G.GlobalPhase = 1 
+        print("[MONITOR] Сигнал RESTART отправлен в " .. TARGET_PATH)
+    end
+end
+
+-- Функция принудительного фокуса камеры на герое
+local function CameraLock()
+    if os.clock() - last_camera_update > 2.0 then
         Engine.ExecuteCommand("+dota_camera_follow")
-        last_cam_check = os.clock()
+        last_camera_update = os.clock()
     end
 end
 
 function monitor.OnUpdate()
+    -- Получаем объект локального игрока
     local me = Heroes.GetLocal()
     if not me then return end
 
-    local now_clock = os.clock()
+    local now = os.clock()
 
-    CameraFollow()
+    -- 1. Выполнение логики камеры
+    CameraLock()
 
-    if (now_clock - last_level_check_time) > 2.0 then
-        last_level_check_time = now_clock
+    -- 2. Логика проверки уровней прокачки (раз в 2 сек)
+    if (now - last_level_process_time) > 2.0 then
+        last_level_process_time = now
         
-        local spent = 0
+        local total_spent = 0
+        -- Перебор всех способностей и талантов (индексы 0-31)
         for i = 0, 31 do
-            local abil = NPC.GetAbilityByIndex(me, i)
-            if abil then
-                local l = Ability.GetLevel(abil)
-                if l and type(l) == "number" and l > 0 then 
-                    spent = spent + l 
+            local ability = NPC.GetAbilityByIndex(me, i)
+            if ability then
+                local level = Ability.GetLevel(ability)
+                -- Суммируем только числовые значения уровней
+                if level and type(level) == "number" and level > 0 then 
+                    total_spent = total_spent + level 
                 end
             end
         end
 
-        if not level_21_created and spent >= 25 then
-            local f, err = io.open("C:\\dota_auto\\scripts\\21.please", "w")
-            if f then
-                f:write("21")
-                f:close()
-                level_21_created = true 
-                print("[MONITOR] 21.please создан.")
-            else
-                print("[MONITOR] ОШИБКА 21.please: " .. tostring(err))
+        -- Условие для 21 уровня (сумма очков >= 25)
+        if not is_level_21_sent and total_spent >= 25 then
+            if WriteSignalFile("21.please") then
+                is_level_21_sent = true 
             end
         end
 
-        if not level_25_created and spent >= 27 then
-            local f, err = io.open("C:\\dota_auto\\scripts\\25.please", "w")
-            if f then
-                f:write("25")
-                f:close()
-                level_25_created = true 
-                print("[MONITOR] 25.please создан.")
-            else
-                print("[MONITOR] ОШИБКА 25.please: " .. tostring(err))
+        -- Условие для 25 уровня (сумма очков >= 27)
+        if not is_level_25_sent and total_spent >= 27 then
+            if WriteSignalFile("25.please") then
+                is_level_25_sent = true 
             end
-        end
-
-        if spent >= 20 then
-            print("[MONITOR] spent=" .. spent .. " 21_created=" .. tostring(level_21_created) .. " 25_created=" .. tostring(level_25_created))
         end
     end
 
+    -- 3. Рестарт при смерти
     if not Entity.IsAlive(me) then
-        run_ahk_script()
+        TriggerRestart()
         return
     end
 
-    local my_pos = Entity.GetAbsOrigin(me)
-    if not last_stuck_pos then 
-        last_stuck_pos = my_pos 
-        last_stuck_time = now_clock 
+    -- 4. Проверка на застревание (Анти-АФК)
+    local current_pos = Entity.GetAbsOrigin(me)
+    if not last_pos_snapshot then 
+        last_pos_snapshot = current_pos 
+        last_move_timestamp = now 
     end
 
-    if (my_pos - last_stuck_pos):Length() > 100 then
-        last_stuck_pos = my_pos
-        last_stuck_time = now_clock
+    -- Сравниваем текущую позицию с предыдущим снимком
+    if (current_pos - last_pos_snapshot):Length() > 150 then
+        -- Если герой прошел больше 150 юнитов, обновляем данные
+        last_pos_snapshot = current_pos
+        last_move_timestamp = now
     else
-        if now_clock - last_stuck_time > 120 then
-            run_ahk_script()
+        -- Если герой стоит на месте дольше 120 секунд
+        if now - last_move_timestamp > 120 then
+            print("[MONITOR] Детектор застревания сработал. Рестарт...")
+            TriggerRestart()
         end
     end
     
+    -- 5. Проверка глобального флага завершения игры
     if _G.GlobalPhase == "FINISHED" then
-        run_ahk_script()
+        TriggerRestart()
     end
 end
 
+-- Возвращаем таблицу для регистрации колбэков в чите
 return monitor

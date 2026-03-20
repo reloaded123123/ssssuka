@@ -35,7 +35,7 @@ local WAYPOINTS = {
     Vector(-15003, 8904, 512),   -- 20
     Vector(-14260, 9282, 640),   -- 21
     Vector(-15213, 10456, 640),  -- 22 [Нычка 4]
-    Vector(-13158, 10856, 768),  -- 23
+    Vector(-13152, 10656, 768),  -- 23
 }
 
 local STASH_WPS = { [4] = true, [7] = true, [10] = true, [22] = true }
@@ -56,6 +56,8 @@ local pauseUntil = 0
 
 local stashArriveTime = 0
 local isWaitingInStash = false
+
+local wp23ArriveTime = 0
 
 local doorArriveTime = 0 
 local bossWasSeen = false 
@@ -634,7 +636,7 @@ function script.OnUpdate()
                     lastMove = now
                 end
             else
-                if shooter ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
+                if now - lastAttackTime >= 0.35 then
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, shooter, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
                     lastAttackTarget = shooter
                     lastAttackTime = now
@@ -972,9 +974,24 @@ function script.OnUpdate()
             return
         end
 
-        local arrivalDist = 180
+        local arrivalDist = (currentWaypoint == 23) and 40 or 180
 
         if distToWp < arrivalDist and not mustClearBeforeMove then
+            -- Вейпоинт 23: ждём 0.5с на точке
+            if currentWaypoint == 23 then
+                if wp23ArriveTime == 0 then
+                    wp23ArriveTime = now
+                end
+                if now - wp23ArriveTime < 0.5 then
+                    if now - lastMove >= 0.15 then
+                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, wpPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                        lastMove = now
+                    end
+                    return
+                end
+                wp23ArriveTime = 0
+            end
+
             isWaitingInStash = false
             stashArriveTime = 0
             if currentWaypoint == #WAYPOINTS then

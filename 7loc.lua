@@ -145,7 +145,7 @@ function script.OnUpdate()
 
     local headsCount = script.CountHeads(myHero)
 
-    -- БЛОК 1: ЗАКУПКА (продажа battlemage_2, покупка skadi_2)
+    -- БЛОК 1: ЗАКУПКА (продажа battlemage_2, покупка skadi_lua2)
     if script.state == "START_BUYING" then
         local distToStart = (myPos - script.START_POS):Length2D()
 
@@ -176,7 +176,7 @@ function script.OnUpdate()
             end
 
             -- Шаг 3: покупаем dark_moon_shard (спам до появления в инвентаре)
-            local dms, _ = script.FindItemInInventory(myHero, "dark_moon_shard")
+            local dms, _ = script.FindItemInInventory(myHero, "item_dark_moon_shard")
             if not dms then
                 if not script.setupDone then
                     Engine.ExecuteCommand("dota_clear_quickbuy")
@@ -190,12 +190,12 @@ function script.OnUpdate()
                 return
             end
 
-            -- Шаг 4: покупаем skadi_2 (спам до появления в инвентаре)
+            -- Шаг 4: покупаем skadi_lua2 (спам до появления в инвентаре)
             local skadi2, _ = script.FindItemInInventory(myHero, "item_skadi_2")
             if not skadi2 then
                 if script.purchaseCount < 1 then
                     Engine.ExecuteCommand("dota_clear_quickbuy")
-                    Engine.SetQuickBuy("skadi_2", true)
+                    Engine.SetQuickBuy("skadi_lua2", true)
                     script.purchaseCount = 1
                 end
                 if now - script.lastActionTime > 0.3 then
