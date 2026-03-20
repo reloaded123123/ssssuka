@@ -16,7 +16,7 @@ local WAYPOINTS = {
     Vector(-12696, 7568, 512),   -- 1
     Vector(-11930, 7228, 512),   -- 2
     Vector(-11164, 6741, 640),   -- 3
-    Vector(-11559, 6489, 512),   -- 4 [Нычка 1]
+    Vector(-11536, 6473, 512),   -- 4 [Нычка 1]
     Vector(-9465, 6718, 512),    -- 5
     Vector(-9387, 7097, 639),    -- 6
     Vector(-8665, 7040, 640),    -- 7 [Нычка 2]
@@ -34,8 +34,8 @@ local WAYPOINTS = {
     Vector(-12790, 8228, 512),   -- 19
     Vector(-15003, 8904, 512),   -- 20
     Vector(-14260, 9282, 640),   -- 21
-    Vector(-15335, 10478, 640),  -- 22 [Нычка 4]
-    Vector(-13152, 10656, 768),  -- 23
+    Vector(-15213, 10456, 640),  -- 22 [Нычка 4]
+    Vector(-13158, 10856, 768),  -- 23
 }
 
 local STASH_WPS = { [4] = true, [7] = true, [10] = true, [22] = true }
@@ -242,7 +242,8 @@ local function FindPathTarget(myHero, myPos, wpPos, all_npcs)
 
     for i = 1, #all_npcs do
         local e = all_npcs[i]
-        if e and Entity.IsAlive(e) and not Entity.IsSameTeam(myHero, e) then
+        if e and Entity.IsAlive(e) and not Entity.IsSameTeam(myHero, e)
+            and not (Entity.IsDormant and Entity.IsDormant(e)) then
             local eName = (NPC.GetUnitName(e) or ""):lower()
             if IsRouteEnemyName(eName) then
                 local ePos = Entity.GetAbsOrigin(e)
@@ -621,7 +622,7 @@ function script.OnUpdate()
     end
 
     -- 2.5. ПОСЛЕ ДОДЖА — ищем и атакуем стрелка в расширенном радиусе (800)
-    if (now - lastDodgeTime) < 2.0 then
+    if (now - lastDodgeTime) < 6.0 then
         local shooter, shooterDist = FindNearestCombatEnemy(h, myPos, 800, all_npcs)
         if shooter then
             local shooterPos = Entity.GetAbsOrigin(shooter)
@@ -782,7 +783,7 @@ function script.OnUpdate()
         end
 
         -- Пока рядом есть враги, не двигаем прогрессию маршрута: сначала зачищаем локальную область.
-        local nearbyEnemy, nearbyEnemyDist = FindNearestCombatEnemy(h, myPos, 500, all_npcs)
+        local nearbyEnemy, nearbyEnemyDist = FindNearestCombatEnemy(h, myPos, 700, all_npcs)
         if nearbyEnemy then
             local enemyPos = Entity.GetAbsOrigin(nearbyEnemy)
             local standoff = GetAttackStandoff(h)
@@ -982,9 +983,11 @@ function script.OnUpdate()
                 currentWaypoint = currentWaypoint + 1 
             end
         elseif not mustClearBeforeMove and now - lastMove >= 0.5 then
-            -- Антиосцилляция: не спамим move если уже идём к тому же вейпоинту и дистанция уменьшается
+            -- Антиосцилляция: не спамим move если уже идём к тому же вейпоинту и дистанция уменьшается.
+            -- Но если застряли дольше 2с — принудительно переотправляем команду.
             local curDist = distToWp
-            if lastMoveTarget == currentWaypoint and curDist < lastMoveTargetDist and (lastMoveTargetDist - curDist) > 5 then
+            local forceMove = (now - lastMove) >= 2.0
+            if not forceMove and lastMoveTarget == currentWaypoint and curDist < lastMoveTargetDist and (lastMoveTargetDist - curDist) > 5 then
                 lastMoveTargetDist = curDist
             else
                 Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, wpPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)

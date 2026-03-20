@@ -1,5 +1,5 @@
 local script = {}
---сосал?
+--сосал? ты сосал
 -- === НАСТРОЙКИ И КОНСТАНТЫ ===
 script.target_names = { "npc_dota_zone_6_unit_3", "npc_dota_zone_6_unit_3", "npc_dota_zone_6_unit_1", "npc_dota_zone_6_unit_2", "npc_dota_zone_6_unit_4" }
 script.BOSS_NAME = "npc_dota_boss_slardar"
@@ -145,69 +145,67 @@ function script.OnUpdate()
 
     local headsCount = script.CountHeads(myHero)
 
-    -- БЛОК 1: ЗАКУПКА MOON SHARD
+    -- БЛОК 1: ЗАКУПКА (продажа battlemage_2, покупка skadi_2)
     if script.state == "START_BUYING" then
         local distToStart = (myPos - script.START_POS):Length2D()
-        
+
         if distToStart > 200 then
             if now - script.lastMoveTime > 0.8 then
                 Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, script.START_POS, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
                 script.lastMoveTime = now
             end
         else
-            local shard, s_slot = script.FindItemInInventory(myHero, script.MOON_SHARD_NAME)
-            
-            if shard then
-                if now - script.lastActionTime > 1.2 then
-                    if s_slot <= 5 then
-                        Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_TARGET, myHero, Vector(0,0,0), shard, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
-                        script.lastActionTime = now
-                    else
-                        local freeSlot = -1
-                        for i = 0, 5 do 
-                            if not NPC.GetItemByIndex(myHero, i) then 
-                                freeSlot = i 
-                                break 
-                            end 
-                        end
-                        
-                        if freeSlot ~= -1 then
-                            Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, freeSlot, Vector(0,0,0), shard, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
-                        else
-                            script.item_to_return = NPC.GetItemByIndex(myHero, 0)
-                            Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, 0, Vector(0,0,0), shard, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
-                        end
-                        script.lastActionTime = now
-                    end
-                end
-                return
-            end
-
-            if not shard and script.item_to_return then
+            -- Шаг 1: продаём battlemage_2
+            local bm2, _ = script.FindItemInInventory(myHero, "item_battlemage_2")
+            if bm2 then
                 if now - script.lastActionTime > 0.8 then
-                    Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, 0, Vector(0,0,0), script.item_to_return, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
-                    script.item_to_return = nil
+                    Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_SELL_ITEM, nil, Vector(0,0,0), bm2, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
                     script.lastActionTime = now
                 end
                 return
             end
 
-            if not shard and not script.item_to_return then
-                if script.purchaseCount < 4 then
-                    if not script.setupDone then
-                        Engine.ExecuteCommand("dota_clear_quickbuy")
-                        Engine.SetQuickBuy("moon_shard", true)
-                        script.setupDone = true
-                    end
-                    if now - script.lastActionTime > 1.0 then
-                        Engine.ExecuteCommand("dota_purchase_quickbuy")
-                        script.purchaseCount = script.purchaseCount + 1
-                        script.lastActionTime = now
-                    end
-                else
-                    script.state = "FARMING"
+            -- Шаг 2: продаём item_trident_lua2
+            local trident, _ = script.FindItemInInventory(myHero, "item_trident_lua2")
+            if trident then
+                if now - script.lastActionTime > 0.8 then
+                    Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_SELL_ITEM, nil, Vector(0,0,0), trident, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
+                    script.lastActionTime = now
                 end
+                return
             end
+
+            -- Шаг 3: покупаем dark_moon_shard (спам до появления в инвентаре)
+            local dms, _ = script.FindItemInInventory(myHero, "dark_moon_shard")
+            if not dms then
+                if not script.setupDone then
+                    Engine.ExecuteCommand("dota_clear_quickbuy")
+                    Engine.SetQuickBuy("dark_moon_shard", true)
+                    script.setupDone = true
+                end
+                if now - script.lastActionTime > 0.3 then
+                    Engine.ExecuteCommand("dota_purchase_quickbuy")
+                    script.lastActionTime = now
+                end
+                return
+            end
+
+            -- Шаг 4: покупаем skadi_2 (спам до появления в инвентаре)
+            local skadi2, _ = script.FindItemInInventory(myHero, "item_skadi_2")
+            if not skadi2 then
+                if script.purchaseCount < 1 then
+                    Engine.ExecuteCommand("dota_clear_quickbuy")
+                    Engine.SetQuickBuy("skadi_2", true)
+                    script.purchaseCount = 1
+                end
+                if now - script.lastActionTime > 0.3 then
+                    Engine.ExecuteCommand("dota_purchase_quickbuy")
+                    script.lastActionTime = now
+                end
+                return
+            end
+
+            script.state = "FARMING"
         end
         return
     end

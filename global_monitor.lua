@@ -17,7 +17,7 @@ local function run_ahk_script()
         return
     end
 
-    local f = io.open("C:\\dota_auto\\restart.please", "w")
+    local f = io.open("C:\\dota_auto\\scripts\\restart.please", "w")
     if f then 
         f:close() 
         last_restart_file_time = os.clock()

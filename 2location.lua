@@ -25,7 +25,7 @@ local WAYPOINTS_L2 = {
 }
 
 local PLATE_POS = Vector(-14006, -4138, 512)
-local PLATE_WP = 19
+local PLATE_WP = 13
 
 local currentWP = 1
 local lastMoveTime = 0
