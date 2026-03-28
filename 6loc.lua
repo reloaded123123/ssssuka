@@ -1,5 +1,8 @@
 local module = {}
 
+local _hudFont = Render.LoadFont("Arial", 18, Enum.FontCreate.FONTFLAG_ANTIALIAS)
+local _hudColor = Color(0, 255, 128, 255)
+
 -- === КООРДИНАТЫ БЛОК 1 (ЛОВУШКИ И ИЛЛЮЗИИ) ===
 local START_PLATE  = Vector(-12752, 14417, 384) 
 local FINAL_TARGET = Vector(-10075, 14462, 384) 
@@ -150,6 +153,21 @@ local waypoints = {
 
 local GATHER_POS = Vector(-5918, 3595, 384)
 local OUTPOST_1_POS = Vector(-3381, 15787, 284)
+
+local function EstimateMedusaWaypoint_6loc(medusaPos)
+    if not medusaPos then return #waypoints + 1 end
+    local bestIdx = 1
+    local bestDist = 999999
+    for i = 1, #waypoints do
+        local d = (medusaPos - waypoints[i]):Length2D()
+        if d < bestDist then
+            bestDist = d
+            bestIdx = i
+        end
+    end
+    if bestDist < 250 then return bestIdx + 1 end
+    return bestIdx
+end
 local WAIT_POS = Vector(-4244, 15704, 256)    
 local OUTPOST_2_POS = Vector(-6080, 3776, 412) 
 local KEY_HANDIN_WP = 8
@@ -157,10 +175,80 @@ local BOSS_TP_WP = 14
 local BOSS_TP_POS = OUTPOST_2_POS
 
 -- === КОНФИГУРАЦИЯ ===
-local SHARD_NAME   = "item_dark_moon_shard"
-local KNIFE_NAME   = "battlemage_2"
+local SHARD_NAME_SOLO   = "item_dark_moon_shard"
+local SHARD_NAME_TEAM   = "item_moon_shard"
+local KNIFE_NAME_SOLO   = "battlemage_2"
+local KNIFE_NAME_TEAM   = "battlemage_1"
 local RUNE_ILLUSION_NAME = "item_rune_illusions"
 local ILLUSION_RUNE_TYPE = 2 -- DOTA_RUNE_ILLUSION
+
+local hasTeammateCache = nil
+local lastTeammateCheck = 0
+
+local function HasTeammate()
+    local now = os.clock()
+    if hasTeammateCache ~= nil and (now - lastTeammateCheck) < 10.0 then
+        return hasTeammateCache
+    end
+    lastTeammateCheck = now
+    local me = Heroes.GetLocal()
+    if not me then hasTeammateCache = false; return false end
+    local allHeroes = Heroes.GetAll()
+    for i = 1, #allHeroes do
+        local hero = allHeroes[i]
+        if hero and hero ~= me and Entity.IsSameTeam(me, hero) and not NPC.IsIllusion(hero) then
+            hasTeammateCache = true
+            return true
+        end
+    end
+    hasTeammateCache = false
+    return false
+end
+
+local function IsMedusa(h)
+    return h and NPC.GetUnitName(h) == "npc_dota_hero_medusa"
+end
+
+local function FindTeammateMedusa()
+    local me = Heroes.GetLocal()
+    if not me then return nil end
+    local allHeroes = Heroes.GetAll()
+    for i = 1, #allHeroes do
+        local hero = allHeroes[i]
+        if hero and hero ~= me and Entity.IsSameTeam(me, hero) and not NPC.IsIllusion(hero) then
+            if NPC.GetUnitName(hero) == "npc_dota_hero_medusa" then
+                return hero
+            end
+        end
+    end
+    return nil
+end
+
+local function FindTeammateHero()
+    local me = Heroes.GetLocal()
+    if not me then return nil end
+    local allHeroes = Heroes.GetAll()
+    for i = 1, #allHeroes do
+        local hero = allHeroes[i]
+        if hero and hero ~= me and Entity.IsSameTeam(me, hero) and not NPC.IsIllusion(hero) then
+            return hero
+        end
+    end
+    return nil
+end
+
+local function TeammateHasItem(itemName)
+    local mate = FindTeammateHero()
+    if not mate then return false end
+    for i = 0, 8 do
+        local it = NPC.GetItemByIndex(mate, i)
+        if it and Ability.GetName(it) == itemName then return true end
+    end
+    return false
+end
+
+local SHARD_NAME = SHARD_NAME_SOLO
+local KNIFE_NAME = KNIFE_NAME_SOLO
 local ENEMY_LIST = {
     ["undying"] = true,
     ["tank"] = true,
@@ -239,6 +327,10 @@ function module.CheckInventoryForOrb(hero)
         local item = NPC.GetItemByIndex(hero, i)
         if item and Ability.GetName(item) == QUEST_ITEM_NAME then return true end
     end
+    -- Медуза с тиммейтом: засчитываем предмет у тиммейта
+    if HasTeammate() and IsMedusa(hero) then
+        return TeammateHasItem(QUEST_ITEM_NAME)
+    end
     return false
 end
 
@@ -264,6 +356,10 @@ end
 function module.OnUpdate()
     if _G.GlobalPhase ~= 8 then return end
 
+    -- Обновляем имена предметов на основе наличия тиммейта
+    local team = HasTeammate()
+    SHARD_NAME = team and SHARD_NAME_TEAM or SHARD_NAME_SOLO
+    KNIFE_NAME = team and KNIFE_NAME_TEAM or KNIFE_NAME_SOLO
     
     local h = Heroes.GetLocal()
     if not h or not Entity.IsAlive(h) then return end
@@ -312,7 +408,14 @@ function module.OnUpdate()
 
     if puzzleStage == 4 then secondBlockStarted = true end
 
+    if not secondBlockStarted then
+        _G.HeroMove = "[6loc] Stage " .. stage .. " Puzzle " .. puzzleStage
+        _G.HeroAction = "[6loc] Solving puzzle"
+    end
+
     if secondBlockStarted then
+        _G.HeroMove = "[6loc] " .. currentSecondStage
+        _G.HeroAction = "[6loc] Phase: " .. currentSecondStage
         -- Если уже на арене и видим боссов, принудительно переходим в боевой этап.
         if currentSecondStage == "CLEANUP" or currentSecondStage == "TP_TO_BOSS" then
             local nearEnemies = Entity.GetUnitsInRadius(h, 2800, Enum.TeamType.TEAM_ENEMY)
@@ -377,6 +480,26 @@ function module.OnUpdate()
                     lastAttackTime = now
                 end
             else
+                -- Non-Medusa в команде: следует позади Медузы (75 юнитов назад)
+                if HasTeammate() and not IsMedusa(h) then
+                    local medusa = FindTeammateMedusa()
+                    if medusa and Entity.IsAlive(medusa) and not Entity.IsDormant(medusa) then
+                        local medusaPos = Entity.GetAbsOrigin(medusa)
+                        local dir = (targetPos - medusaPos):Normalized()
+                        local behindPos = medusaPos - dir * 75
+                        local distToBehind = (myPos - behindPos):Length2D()
+                        _G.HeroMove = "[6loc] Behind Medusa (" .. math.floor(distToBehind) .. ")"
+                        _G.HeroAction = "[6loc] Following"
+                        if distToBehind > 50 and now - lastMoveTime > 0.3 then
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, behindPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            lastMoveTime = now
+                        end
+                        local medusaWP = EstimateMedusaWaypoint_6loc(medusaPos)
+                        if medusaWP > 0 then currentWP = math.max(1, medusaWP) end
+                        return
+                    end
+                end
+
                 if distToWP > 70 then
                     if now - lastMoveTime > 0.3 then
                         Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, targetPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
@@ -398,6 +521,19 @@ function module.OnUpdate()
                     end
 
                     if currentWP < #waypoints then 
+                        -- Non-Medusa с тиммейтом: не может обогнать Медузу
+                        if HasTeammate() and not IsMedusa(h) then
+                            local medusa = FindTeammateMedusa()
+                            if medusa and Entity.IsAlive(medusa) and not Entity.IsDormant(medusa) then
+                                local medusaPos = Entity.GetAbsOrigin(medusa)
+                                local medusaWP = EstimateMedusaWaypoint_6loc(medusaPos)
+                                if currentWP + 1 > medusaWP then
+                                    _G.HeroMove = "[6loc] Waiting for Medusa"
+                                    _G.HeroAction = "[6loc] Can't overtake (WP" .. currentWP .. " vs M:" .. medusaWP .. ")"
+                                    return
+                                end
+                            end
+                        end
                         currentWP = currentWP + 1
                         Log.Write(string.format("[CLEANUP] Переход на WP %d", currentWP))
                         waitTimer = 0
@@ -443,11 +579,14 @@ function module.OnUpdate()
             for _, pItem in ipairs(droppedItems) do
                 local itemEntity = PhysicalItem.GetItem(pItem)
                 if itemEntity and Ability.GetName(itemEntity) == QUEST_ITEM_NAME then
-                    if now - lastItemTime > 0.3 then
-                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_PICKUP_ITEM, pItem, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                        lastItemTime = now
+                    -- Только не-Медуза подбирает предметы боссов в команде
+                    if not (IsMedusa(h) and HasTeammate()) then
+                        if now - lastItemTime > 0.3 then
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_PICKUP_ITEM, pItem, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            lastItemTime = now
+                        end
+                        return
                     end
-                    return
                 end
             end
 
@@ -680,7 +819,7 @@ function module.OnUpdate()
                     end
                 end
 
-                if nearestDroppedRune then
+                if nearestDroppedRune and not (IsMedusa(h) and HasTeammate()) then
                     if nearestDroppedDist > 250 then
                         local pPos = Entity.GetAbsOrigin(nearestDroppedRune) or PhysicalItem.GetPosition(nearestDroppedRune)
                         if pPos and now - lastMoveTime > 0.2 then
@@ -766,56 +905,46 @@ function module.OnUpdate()
 
         -- ЛОГИКА ПРЕДМЕТОВ
         if (myPos - KEY_TARGET_2):Length2D() <= 200 then
-            local shard = NPC.GetItem(h, SHARD_NAME, true)
+            local team = HasTeammate()
+            -- Ищем dark_moon_shard (в команде — результат слияния двух moon_shard)
+            local dms = NPC.GetItem(h, "item_dark_moon_shard", true)
             local knife = FindFinalItem(h)
             
-            -- Потребляем шард (один раз)
-            if shard and not shardConsumed then
+            -- Потребляем dark_moon_shard (один раз)
+            if dms and not shardConsumed then
                 setupDone = false 
                 if now - lastActionTime > 1.0 then
                     local s_slot = -1
-                    for i=0,8 do if NPC.GetItemByIndex(h, i) == shard then s_slot = i break end end
+                    for i=0,8 do if NPC.GetItemByIndex(h, i) == dms then s_slot = i break end end
                     if s_slot <= 5 then
-                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), shard, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_CAST_NO_TARGET, nil, Vector(0,0,0), dms, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                         shardConsumed = true
                         lastActionTime = now
                     else
                         local free = -1
                         for i=0,5 do if not NPC.GetItemByIndex(h,i) then free = i break end end
                         if free ~= -1 then
-                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, free, Vector(0,0,0), shard, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, free, Vector(0,0,0), dms, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                         else
                             item_to_return = NPC.GetItemByIndex(h, 0); target_slot = 0
-                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, 0, Vector(0,0,0), shard, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, 0, Vector(0,0,0), dms, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                         end
                         lastActionTime = now
                     end
                 end
                 return 
             end
-            if not shard and item_to_return and target_slot ~= -1 then
+            if not dms and item_to_return and target_slot ~= -1 then
                 if now - lastActionTime > 0.8 then
                     Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_ITEM, target_slot, Vector(0,0,0), item_to_return, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                     item_to_return = nil; target_slot = -1; lastActionTime = now
                 end
                 return
             end
-            if not knife and not item_to_return then
-                if not setupDone then
-                    Engine.ExecuteCommand("dota_clear_quickbuy")
-                    Engine.SetQuickBuy(KNIFE_NAME, true)
-                    setupDone = true
-                end
-                if now - lastActionTime >= 0.2 then
-                    Engine.ExecuteCommand("dota_purchase_quickbuy")
-                    lastActionTime = now
-                end
-                return
-            end
-            -- Покупаем dark_moon_shard после battlemage_2 (только если ещё не потребляли)
-            if knife and not shardConsumed and not item_to_return then
-                local hasShard2 = NPC.GetItem(h, SHARD_NAME, true)
-                if not hasShard2 then
+
+            if team then
+                -- TEAM: сначала покупаем moon_shard (сольётся с имеющимся → dark_moon_shard), потом battlemage_1
+                if not shardConsumed then
                     if not setupDoneShard then
                         Engine.ExecuteCommand("dota_clear_quickbuy")
                         Engine.SetQuickBuy(SHARD_NAME, true)
@@ -827,7 +956,48 @@ function module.OnUpdate()
                     end
                     return
                 end
+                if not knife and not item_to_return then
+                    if not setupDone then
+                        Engine.ExecuteCommand("dota_clear_quickbuy")
+                        Engine.SetQuickBuy(KNIFE_NAME, true)
+                        setupDone = true
+                    end
+                    if now - lastActionTime >= 0.2 then
+                        Engine.ExecuteCommand("dota_purchase_quickbuy")
+                        lastActionTime = now
+                    end
+                    return
+                end
+            else
+                -- SOLO: сначала battlemage_2, потом dark_moon_shard
+                if not knife and not item_to_return then
+                    if not setupDone then
+                        Engine.ExecuteCommand("dota_clear_quickbuy")
+                        Engine.SetQuickBuy(KNIFE_NAME, true)
+                        setupDone = true
+                    end
+                    if now - lastActionTime >= 0.2 then
+                        Engine.ExecuteCommand("dota_purchase_quickbuy")
+                        lastActionTime = now
+                    end
+                    return
+                end
+                if knife and not shardConsumed and not item_to_return then
+                    if not NPC.GetItem(h, SHARD_NAME, true) then
+                        if not setupDoneShard then
+                            Engine.ExecuteCommand("dota_clear_quickbuy")
+                            Engine.SetQuickBuy(SHARD_NAME, true)
+                            setupDoneShard = true
+                        end
+                        if now - lastActionTime >= 0.2 then
+                            Engine.ExecuteCommand("dota_purchase_quickbuy")
+                            lastActionTime = now
+                        end
+                        return
+                    end
+                end
             end
+
             if knife and not item_to_return then
                 allItemsReady = true
             end
@@ -853,6 +1023,16 @@ function module.OnUpdate()
         for i = 0, 8 do
             local item = NPC.GetItemByIndex(h, i)
             if item and Ability.GetName(item) == KEY_NAME then hasKey = true; break end
+        end
+        -- Не-Медуза: засчитываем ключ у Медузы
+        if not hasKey and HasTeammate() and not IsMedusa(h) then
+            local medusa = FindTeammateMedusa()
+            if medusa and not Entity.IsDormant(medusa) then
+                for i = 0, 8 do
+                    local item = NPC.GetItemByIndex(medusa, i)
+                    if item and Ability.GetName(item) == KEY_NAME then hasKey = true; break end
+                end
+            end
         end
 
         if hasKey then
@@ -949,11 +1129,14 @@ function module.OnUpdate()
             for _, pItem in ipairs(pItems) do
                 local item = PhysicalItem.GetItem(pItem)
                 if item and Ability.GetName(item) == KEY_NAME then
-                    if now - lastMoveTime > 0.2 then
-                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_PICKUP_ITEM, pItem, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                        lastMoveTime = now
+                    -- Только не-Медуза подбирает ключ в команде
+                    if not IsMedusa(h) or not HasTeammate() then
+                        if now - lastMoveTime > 0.2 then
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_PICKUP_ITEM, pItem, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            lastMoveTime = now
+                        end
+                        return
                     end
-                    return
                 end
             end
             local enemies = Entity.GetUnitsInRadius(h, 600, Enum.TeamType.TEAM_ENEMY)
@@ -961,6 +1144,27 @@ function module.OnUpdate()
                 Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, enemies[1], Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                 lastMoveTime = now
             end
+        end
+    end
+end
+
+function module.OnDraw()
+    if _G.GlobalPhase ~= 8 then return end
+    local h = Heroes.GetLocal()
+    if not h or not Entity.IsAlive(h) then return end
+    local pos = Entity.GetAbsOrigin(h)
+    if not pos then return end
+    local headPos = pos + Vector(0, 0, 200)
+    local screenPos, vis = Render.WorldToScreen(headPos)
+    if vis and screenPos then
+        local moveColor = Color(100, 200, 255, 255)
+        local actColor  = Color(0, 255, 128, 255)
+        if _G.HeroMove then
+            Render.Text(_hudFont, 18, _G.HeroMove, screenPos, moveColor)
+        end
+        if _G.HeroAction then
+            local line2 = screenPos + Vector(0, 22, 0)
+            Render.Text(_hudFont, 18, _G.HeroAction, line2, actColor)
         end
     end
 end

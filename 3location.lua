@@ -316,11 +316,11 @@ function script.OnUpdate()
     local d = traps_logic.trap_data
     local current_idx = traps_logic.current_idx
 
-    if current_idx ~= 4 then
+    if current_idx ~= 4 and current_idx ~= 17 then
         d.first_laser_committed = false
     end
 
-    if current_idx == 4 then
+    if current_idx == 4 or current_idx == 17 then
         local movement_threshold = 30
         if d.last_pos and (my_pos - d.last_pos):Length2D() < movement_threshold then
             d.stuck_timer = (d.stuck_timer or 0) + (now - (d.last_frame_time or now))
@@ -347,6 +347,11 @@ function script.OnUpdate()
     end
 
     if wp.need_cut_tree and not d.tree_attempted then
+        -- Сначала подходим к stand, чтобы деревья были в зоне видимости
+        if (my_pos - wp.stand):Length2D() > 300 then
+            script.Move(me, wp.stand)
+            return
+        end
         -- Ищем деревья вокруг stand, вдоль пути stand→target, и между героем и stand
         local trees_found = {}
         local seen = {}
@@ -433,7 +438,7 @@ function script.OnUpdate()
         local dist_to_target = (my_pos - wp.target):Length2D()
         
         local required_distance = 75
-        if current_idx == 4 then
+        if current_idx == 4 or current_idx == 17 then
             required_distance = 100
         elseif current_idx == 10 then
             required_distance = 90
@@ -508,7 +513,7 @@ function script.OnUpdate()
                 local l_pos = Entity.GetAbsOrigin(laser)
                 local cur_yaw = Entity.GetRotation(laser):GetYaw()
                 
-                if current_idx == 4 then
+                if current_idx == 4 or current_idx == 17 then
                     local beam_yaw = cur_yaw
                     if laser_beam_particle.angle and (os.clock() - laser_beam_particle.updated) < 0.5 then
                         beam_yaw = laser_beam_particle.angle
@@ -635,14 +640,14 @@ function script.OnUpdate()
                         end
                         
                         local sim_time = LOOK_AHEAD_TIME
-                        if current_idx == 4 then
+                        if current_idx == 4 or current_idx == 17 then
                             sim_time = LOOK_AHEAD_TIME + 1.8
                         elseif math.abs(d.omega) > 70 then
                             sim_time = LOOK_AHEAD_TIME + 1.0
                         end
                         local is_path_safe = script.IsPathSafeFromPos(wp.stand, wp.target, l_pos, d.last_yaw, d.omega, sim_time, wp.laser_name, current_idx)
                         
-                        if current_idx == 4 then
+                        if current_idx == 4 or current_idx == 17 then
                             if (d.first_laser_wait_start or 0) == 0 then
                                 d.first_laser_wait_start = now
                             end
@@ -1142,7 +1147,7 @@ function script.OnDraw()
     local me = Heroes.GetLocal()
     if not me then return end
 
-    if traps_logic.current_idx ~= 4 then return end
+    if traps_logic.current_idx ~= 4 and traps_logic.current_idx ~= 17 then return end
 
     local now = os.clock()
     local d = traps_logic.trap_data

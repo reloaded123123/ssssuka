@@ -23,6 +23,12 @@ local last_level_process_time = 0
 -- Флаги однократного срабатывания для уровней
 local is_level_21_sent = false
 local is_level_25_sent = false
+local is_mana_plate_dropped = false
+local is_lich_heart_dropped = false
+
+-- Счётчик смертей (рестарт только со второй)
+local death_count = 0
+local was_dead = false
 
 -- Вспомогательная функция для безопасного создания файла по прямому пути
 local function WriteSignalFile(name)
@@ -108,12 +114,74 @@ function monitor.OnUpdate()
                 is_level_25_sent = true 
             end
         end
+
+        -- Выброс mana_plate при достижении 27 спелл поинтов (повторяет пока предмет не исчезнет из инвентаря)
+        if not is_mana_plate_dropped and total_spent >= 27 then
+            local pMe = Players.GetLocal()
+            if pMe then
+                local myPos = Entity.GetAbsOrigin(me)
+                local found = false
+                for slot = 0, 8 do
+                    local item = NPC.GetItemByIndex(me, slot)
+                    if item then
+                        local name = Ability.GetName(item)
+                        if name and string.find(name, "mana_plate") then
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, nil, myPos, item, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, me)
+                            found = true
+                            print("[MONITOR] mana_plate: попытка выброса...")
+                            break
+                        end
+                    end
+                end
+                if not found then
+                    -- Предмет больше не найден в инвентаре — выброс успешен
+                    is_mana_plate_dropped = true
+                    print("[MONITOR] mana_plate успешно выброшен")
+                end
+            end
+        end
+
+        -- Выброс lich_heart при достижении 25 спелл поинтов (повторяет пока предмет не исчезнет из инвентаря)
+        if not is_lich_heart_dropped and total_spent >= 25 then
+            local pMe = Players.GetLocal()
+            if pMe then
+                local myPos = Entity.GetAbsOrigin(me)
+                local found = false
+                for slot = 0, 8 do
+                    local item = NPC.GetItemByIndex(me, slot)
+                    if item then
+                        local name = Ability.GetName(item)
+                        if name and string.find(name, "lich_heart") then
+                            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, nil, myPos, item, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, me)
+                            found = true
+                            print("[MONITOR] lich_heart: попытка выброса...")
+                            break
+                        end
+                    end
+                end
+                if not found then
+                    is_lich_heart_dropped = true
+                    print("[MONITOR] lich_heart успешно выброшен")
+                end
+            end
+        end
     end
 
-    -- 3. Рестарт при смерти
-    if not Entity.IsAlive(me) then
-        TriggerRestart()
+    -- 3. Рестарт при смерти (только со второй)
+    local is_alive = Entity.IsAlive(me)
+    if not is_alive then
+        if not was_dead then
+            -- Переход живой -> мёртвый: новая смерть
+            was_dead = true
+            death_count = death_count + 1
+            print("[MONITOR] Смерть #" .. death_count)
+            if death_count >= 2 then
+                TriggerRestart()
+            end
+        end
         return
+    else
+        was_dead = false
     end
 
     -- 4. Проверка на застревание (Анти-АФК)

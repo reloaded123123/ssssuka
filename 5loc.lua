@@ -1,44 +1,84 @@
 local script = {}
 
+local _hudFont = Render.LoadFont("Arial", 18, Enum.FontCreate.FONTFLAG_ANTIALIAS)
+local _hudColor = Color(0, 255, 128, 255)
 
 local KEY_ITEM_NAME = "item_prison_cell_key"
-local DOOR_POS = Vector(-14430, 11679, 640) 
-local BOSS_POS = Vector(-14797, 13594, 512)
+local DOOR_POS = Vector(-14428, 11654, 640) 
+local BOSS_POS = Vector(-14912, 13559, 512)
 local BOSS_NAME = "npc_dota_boss_tiny"
 local START_BUY_POS = Vector(-15316, 7880, 640)
 local LICH_HEART = "item_lich_heart"
 local MOON_SHARD = "item_moon_shard"
-local MEDUSA_FINAL_ITEM = "item_trident_lua2"
-local OTHER_FINAL_ITEM = "item_trident_lua2"
-local FINAL_ITEM_BUY_INTERVAL = 0.2
+local MEDUSA_FINAL_ITEM_SOLO = "item_trident_lua2"
+local MEDUSA_FINAL_ITEM_TEAM = "item_trident_lua1"
+local OTHER_FINAL_ITEM_SOLO = "item_dragon_lance_lua2"
+local OTHER_FINAL_ITEM_TEAM = "item_dragon_lance_lua1"
+local FINAL_ITEM_BUY_INTERVAL = 0.1
+
+local hasTeammateCache = nil
+local lastTeammateCheck = 0
+
+local function HasTeammate()
+    local now = os.clock()
+    if hasTeammateCache ~= nil and (now - lastTeammateCheck) < 10.0 then
+        return hasTeammateCache
+    end
+    lastTeammateCheck = now
+    local me = Heroes.GetLocal()
+    if not me then hasTeammateCache = false; return false end
+    local allHeroes = Heroes.GetAll()
+    for i = 1, #allHeroes do
+        local hero = allHeroes[i]
+        if hero and hero ~= me and Entity.IsSameTeam(me, hero) and not NPC.IsIllusion(hero) then
+            hasTeammateCache = true
+            return true
+        end
+    end
+    hasTeammateCache = false
+    return false
+end
 
 local WAYPOINTS = {
-    Vector(-12696, 7568, 512),   -- 1
-    Vector(-11930, 7228, 512),   -- 2
-    Vector(-11164, 6741, 640),   -- 3
-    Vector(-11536, 6473, 512),   -- 4 [Нычка 1]
-    Vector(-9465, 6718, 512),    -- 5
-    Vector(-9387, 7097, 639),    -- 6
-    Vector(-8665, 7040, 640),    -- 7 [Нычка 2]
-    Vector(-8783, 8491, 768),    -- 8
-    Vector(-9918, 9708, 640),    -- 9
-    Vector(-9574, 10225, 640),   -- 10 [Нычка 3]
-    Vector(-10310, 10515, 512),  -- 11
-    Vector(-11021, 10871, 640),  -- 12
-    Vector(-11754, 10643, 640),  -- 13
-    Vector(-12197, 10447, 512),  -- 14
-    Vector(-11772, 9912, 512),   -- 15
-    Vector(-10912, 9632, 512),   -- 16
-    Vector(-11420, 8666, 640),   -- 17
-    Vector(-12412, 9173, 600),   -- 18
-    Vector(-12790, 8228, 512),   -- 19
-    Vector(-15003, 8904, 512),   -- 20
-    Vector(-14260, 9282, 640),   -- 21
-    Vector(-15213, 10456, 640),  -- 22 [Нычка 4]
-    Vector(-13152, 10656, 768),  -- 23
+    Vector(-15379, 8001, 640),   -- 1  точка покупки
+    Vector(-13601, 7822, 512),   -- 2
+    Vector(-12499, 7466, 512),   -- 3
+    Vector(-11729, 7137, 512),   -- 4
+    Vector(-11010, 6667, 640),   -- 5
+    Vector(-11558, 6461, 512),   -- 6  [Нычка 1]
+    Vector(-11268, 7288, 512),   -- 7
+    Vector(-10394, 7482, 512),   -- 8
+    Vector(-9655, 7031, 516),    -- 9
+    Vector(-9125, 7377, 640),    -- 10
+    Vector(-8953, 7835, 640),    -- 11
+    Vector(-8664, 7038, 640),    -- 12 [Нычка 2]
+    Vector(-8838, 8704, 768),    -- 13
+    Vector(-9278, 9194, 640),    -- 14
+    Vector(-9505, 9530, 640),    -- 15
+    Vector(-9908, 9927, 580),    -- 16
+    Vector(-9500, 10191, 640),   -- 17 [Нычка 3]
+    Vector(-10425, 10576, 512),  -- 18
+    Vector(-11005, 10791, 640),  -- 19
+    Vector(-11662, 10751, 640),  -- 20
+    Vector(-12194, 10824, 640),  -- 21
+    Vector(-12339, 10296, 512),  -- 22
+    Vector(-11855, 9962, 512),   -- 23
+    Vector(-11541, 9791, 512),   -- 24
+    Vector(-11078, 9594, 512),   -- 25
+    Vector(-11148, 9147, 512),   -- 26
+    Vector(-11685, 8635, 640),   -- 27
+    Vector(-12217, 9055, 640),   -- 28
+    Vector(-12732, 9349, 512),   -- 29
+    Vector(-13437, 8808, 512),   -- 30
+    Vector(-14475, 8944, 512),   -- 31
+    Vector(-14365, 9452, 640),   -- 32
+    Vector(-14293, 10064, 640),  -- 33
+    Vector(-15194, 11148, 512),  -- 34
+    Vector(-15084, 10504, 640),  -- 35 [Нычка 4]
+    Vector(-13152, 10656, 768),  -- 36 (пауза 0.5с, пиксель в пиксель)
 }
 
-local STASH_WPS = { [4] = true, [7] = true, [10] = true, [22] = true }
+local STASH_WPS = { [6] = true, [12] = true, [17] = true, [35] = true }
 
 
 local currentWaypoint = 1
@@ -93,11 +133,45 @@ local PROTECTED_KEYWORDS_5L = {
 }
 
 local function GetFinalBuyItemName(h)
-    if not h then return OTHER_FINAL_ITEM end
+    local team = HasTeammate()
+    if not h then return OTHER_FINAL_ITEM_SOLO end
     if NPC.GetUnitName(h) == "npc_dota_hero_medusa" then
-        return MEDUSA_FINAL_ITEM
+        return team and MEDUSA_FINAL_ITEM_TEAM or MEDUSA_FINAL_ITEM_SOLO
     end
-    return OTHER_FINAL_ITEM
+    -- Не-медуза всегда покупает dragon_lance_lua2
+    return OTHER_FINAL_ITEM_SOLO
+end
+
+local function FindTeammateMedusa()
+    local me = Heroes.GetLocal()
+    if not me then return nil end
+    local allHeroes = Heroes.GetAll()
+    for i = 1, #allHeroes do
+        local hero = allHeroes[i]
+        if hero and hero ~= me and Entity.IsSameTeam(me, hero) and not NPC.IsIllusion(hero) then
+            if NPC.GetUnitName(hero) == "npc_dota_hero_medusa" then
+                return hero
+            end
+        end
+    end
+    return nil
+end
+
+local function FindTeammateHero()
+    local me = Heroes.GetLocal()
+    if not me then return nil end
+    local allHeroes = Heroes.GetAll()
+    for i = 1, #allHeroes do
+        local hero = allHeroes[i]
+        if hero and hero ~= me and Entity.IsSameTeam(me, hero) and not NPC.IsIllusion(hero) then
+            return hero
+        end
+    end
+    return nil
+end
+
+local function IsMedusa(h)
+    return h and NPC.GetUnitName(h) == "npc_dota_hero_medusa"
 end
 
 local function FindItemByNameInMainOrBackpack(h, itemName)
@@ -177,6 +251,21 @@ end
 local function GetDistanceSafe(v1, v2)
     if not v1 or not v2 then return 999999 end
     return (v1 - v2):Length2D()
+end
+
+local function EstimateMedusaWaypoint(medusaPos)
+    if not medusaPos then return #WAYPOINTS + 1 end
+    local bestIdx = 1
+    local bestDist = 999999
+    for i = 1, #WAYPOINTS do
+        local d = GetDistanceSafe(medusaPos, WAYPOINTS[i])
+        if d < bestDist then
+            bestDist = d
+            bestIdx = i
+        end
+    end
+    if bestDist < 250 then return bestIdx + 1 end
+    return bestIdx
 end
 
 local function IsRouteEnemyName(eName)
@@ -322,36 +411,41 @@ function script.OnUpdate()
 
     -- При достижении 25 spell points (детект по сумме уровней абилок/талантов) выбрасываем item_lich_heart.
     if not lichHeartHandled then
-        if not level25DetectedByPoints and (now - lastSpellPointsCheckTime) > 1.5 then
-            lastSpellPointsCheckTime = now
+        local isMedu = IsMedusa(h)
+        local hasTeam = HasTeammate()
 
-            local spent = 0
-            for i = 0, 31 do
-                local abil = NPC.GetAbilityByIndex(h, i)
-                if abil then
-                    local l = Ability.GetLevel(abil)
-                    if l and type(l) == "number" and l > 0 then
-                        spent = spent + l
+        -- Медуза с тиммейтом: полностью игнорирует lich_heart
+        if isMedu and hasTeam then
+            lichHeartHandled = true
+        else
+            if not level25DetectedByPoints and (now - lastSpellPointsCheckTime) > 1.5 then
+                lastSpellPointsCheckTime = now
+
+                local spent = 0
+                for i = 0, 31 do
+                    local abil = NPC.GetAbilityByIndex(h, i)
+                    if abil then
+                        local l = Ability.GetLevel(abil)
+                        if l and type(l) == "number" and l > 0 then
+                            spent = spent + l
+                        end
                     end
+                end
+
+                -- Порог события: 25 spell points.
+                if spent >= 25 then
+                    level25DetectedByPoints = true
                 end
             end
 
-            -- Порог события: 25 spell points.
-            if spent >= 25 then
-                level25DetectedByPoints = true
-            end
-        end
-
-        if level25DetectedByPoints then
-            local heart, _ = FindItemByNameInMainOrBackpack(h, LICH_HEART)
-            if heart then
-                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, nil, myPos, heart, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                lastSwap = now
-                lichHeartHandled = true
-                return
-            else
-                -- Lich heart нет в инвентаре — считаем задачу выполненной
-                lichHeartHandled = true
+            if level25DetectedByPoints then
+                local heart, _ = FindItemByNameInMainOrBackpack(h, LICH_HEART)
+                if heart then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_DROP_ITEM, nil, myPos, heart, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    lastSwap = now
+                    lichHeartHandled = true
+                    return
+                end
             end
         end
     end
@@ -359,6 +453,11 @@ function script.OnUpdate()
     -- Ключ появился в инвентаре: если это произошло в нычке, сразу выбрасываем топорик на землю.
     -- Важно: делаем это ДО паузы, чтобы дроп не задерживался swap/pause логикой.
     local keyInInv = HasKey(h)
+    local keyAvailable = keyInInv
+    if not keyAvailable and HasTeammate() then
+        local mate = IsMedusa(h) and FindTeammateHero() or FindTeammateMedusa()
+        if mate and not Entity.IsDormant(mate) then keyAvailable = HasKey(mate) end
+    end
     local keyJustFound = keyInInv and not hadKeyPrev
     hadKeyPrev = keyInInv
 
@@ -383,6 +482,8 @@ function script.OnUpdate()
 
     -- СТАРТОВАЯ ФАЗА: прийти в точку -> купить+съесть moon shard -> купить trident -> свап из ранца
     if not startupDone then
+        _G.HeroMove = "[5loc] Startup"
+        _G.HeroAction = "[5loc] Startup phase " .. startupPhase
         if startupPhase == 0 then
             -- Подходим к точке покупки
             local distToBuyPos = GetDistanceSafe(myPos, START_BUY_POS)
@@ -511,32 +612,27 @@ function script.OnUpdate()
     -- ПРОВЕРКА ХП
     local hpPct = Entity.GetHealth(h) / Entity.GetMaxHealth(h)
     if hpPct < 0.25 then
-        local escapeWpIndex = currentWaypoint - 1
-        if escapeWpIndex < 1 then escapeWpIndex = 1 end
-        local escapePos = WAYPOINTS[escapeWpIndex]
-        local distToEscape = GetDistanceSafe(myPos, escapePos)
-        
-        if distToEscape > 250 then
-            if now - lastMove >= 0.35 then
-                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, escapePos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                lastMove = now
+        _G.HeroMove = "[5loc] Escaping (HP low)"
+        _G.HeroAction = "[5loc] LOW HP escape"
+
+        -- Non-Medusa в команде: убегает К Медузе, а не назад по вейпоинтам
+        local escapePos = nil
+        if HasTeammate() and not IsMedusa(h) then
+            local medusa = FindTeammateMedusa()
+            if medusa and Entity.IsAlive(medusa) and not Entity.IsDormant(medusa) then
+                escapePos = Entity.GetAbsOrigin(medusa)
+                _G.HeroAction = "[5loc] LOW HP -> run to Medusa"
             end
-        else
-            local currentHpPct = Entity.GetHealth(h) / Entity.GetMaxHealth(h)
-            if currentHpPct < 0.25 then
-                local furtherWpIndex = currentWaypoint - 2
-                if furtherWpIndex < 1 then furtherWpIndex = 1 end
-                local furtherEscapePos = WAYPOINTS[furtherWpIndex]
-                if now - lastMove >= 0.35 then
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, furtherEscapePos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                    lastMove = now
-                end
-            else
-                if now - lastMove >= 0.5 then
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, escapePos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                    lastMove = now
-                end
-            end
+        end
+        if not escapePos then
+            local escapeWpIndex = currentWaypoint - 1
+            if escapeWpIndex < 1 then escapeWpIndex = 1 end
+            escapePos = WAYPOINTS[escapeWpIndex]
+        end
+
+        if now - lastMove >= 0.35 then
+            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, escapePos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+            lastMove = now
         end
         return 
     end
@@ -558,6 +654,8 @@ function script.OnUpdate()
     end
 
     if now < evadeUntil and evadePos then
+        _G.HeroMove = "[5loc] Dodging away"
+        _G.HeroAction = "[5loc] Dodge spider!"
         if now - lastMove >= 0.15 then
             local runPos = myPos + (myPos - evadePos):Normalized() * 400
             Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, runPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
@@ -577,7 +675,7 @@ function script.OnUpdate()
         if proj and proj.position and proj.velocity then
             local projPos = proj.position
             local distToProj = GetDistanceSafe(myPos, projPos)
-            if distToProj < 1500 then
+            if distToProj < 800 then
                 local vel = proj.velocity
                 if vel and (vel.x ~= 0 or vel.y ~= 0) then
                     local projDir = Vector(vel.x, vel.y, 0):Normalized()
@@ -603,13 +701,15 @@ function script.OnUpdate()
     end
 
     if #dangerousProjs > 0 then
+        _G.HeroMove = "[5loc] Dodging arrows"
+        _G.HeroAction = "[5loc] Dodge arrow! (" .. #dangerousProjs .. ")"
         local dodgeVec = Vector(0, 0, 0)
         for _, p in ipairs(dangerousProjs) do
             local perpDir = Vector(-p.dir.y, p.dir.x, 0):Normalized()
             local toHero = myPos - p.pos
             local side = toHero.x * (-p.dir.y) + toHero.y * p.dir.x
             if side < 0 then perpDir = perpDir * (-1) end
-            local weight = 1.0 + (1500 - p.dist) / 500
+            local weight = 1.0 + (800 - p.dist) / 300
             dodgeVec = dodgeVec + perpDir * weight
         end
         local dodgeDir = dodgeVec:Normalized()
@@ -618,33 +718,16 @@ function script.OnUpdate()
         local targetPos = myPos + dodgeDir * dodgeDist
 
         Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, targetPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+        -- После доджа сразу ставим в очередь атаку ближайшего врага, чтобы герой не простаивал
+        local dodgeShooter, _ = FindNearestCombatEnemy(h, myPos, 800, all_npcs)
+        if dodgeShooter then
+            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, dodgeShooter, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, true, true)
+            lastAttackTarget = dodgeShooter
+            lastAttackTime = now
+        end
         lastMove = now
         lastDodgeTime = now
         return
-    end
-
-    -- 2.5. ПОСЛЕ ДОДЖА — ищем и атакуем стрелка в расширенном радиусе (800)
-    if (now - lastDodgeTime) < 6.0 then
-        local shooter, shooterDist = FindNearestCombatEnemy(h, myPos, 800, all_npcs)
-        if shooter then
-            local shooterPos = Entity.GetAbsOrigin(shooter)
-            local standoff = GetAttackStandoff(h)
-            if shooterPos and shooterDist > standoff then
-                if now - lastMove >= 0.25 then
-                    local attackPos = myPos + (shooterPos - myPos):Normalized() * (shooterDist - standoff)
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, attackPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                    lastMove = now
-                end
-            else
-                if now - lastAttackTime >= 0.35 then
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, shooter, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
-                    lastAttackTarget = shooter
-                    lastAttackTime = now
-                    lastMove = now
-                end
-            end
-            return
-        end
     end
 
     -- 2.7. КАСТ 2 СКИЛЛА (W) при мане < 20%
@@ -677,7 +760,7 @@ function script.OnUpdate()
 
     
     local bestTarget = nil
-    local minDist = 600
+    local minDist = 1000
     local bossAliveNow = false
 
     for i = 1, #all_npcs do
@@ -698,7 +781,7 @@ function script.OnUpdate()
                     end
                 end
 
-                if not bestTarget and dist < 600 then
+                if not bestTarget and dist < 750 then
                     if IsRouteEnemyName(eName) then
                         if dist < minDist then
                             minDist = dist
@@ -712,30 +795,21 @@ function script.OnUpdate()
 
     
     if bossWasSeen and not bossAliveNow then
+        _G.HeroMove = "[5loc] Standing"
+        _G.HeroAction = "[5loc] Boss dead -> Phase 8"
         _G.GlobalPhase = 8
         return
     end
 
     -- ПРИОРИТЕТ АТАКИ вне маршрутной фазы
     if bestTarget and finalPathState ~= 0 then
-        local distToTarget = GetDistanceSafe(myPos, Entity.GetAbsOrigin(bestTarget))
-        local standoff = GetAttackStandoff(h)
-        
-        if distToTarget > standoff then
-            -- Подходим на дистанцию атаки
-            local attackPos = myPos + (Entity.GetAbsOrigin(bestTarget) - myPos):Normalized() * (distToTarget - standoff)
-            if now - lastMove >= 0.35 then
-                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, attackPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                lastMove = now
-            end
-        else
-            -- Уже на дистанции атаки - бьем
-            if bestTarget ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
-                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, bestTarget, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
-                lastAttackTarget = bestTarget
-                lastAttackTime = now
-                lastMove = now
-            end
+        _G.HeroMove = "[5loc] In combat (boss area)"
+        _G.HeroAction = "[5loc] ATK boss area"
+        if bestTarget ~= lastAttackTarget or (now - lastAttackTime) >= 0.5 then
+            Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, bestTarget, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+            lastAttackTarget = bestTarget
+            lastAttackTime = now
+            lastMove = now
         end
         return 
     end
@@ -764,8 +838,87 @@ function script.OnUpdate()
 
     
     if finalPathState == 0 then
+        -- ===== Non-Medusa в команде: следует позади Медузы, подбирает предметы =====
+        if HasTeammate() and not IsMedusa(h) then
+            -- ВЫСШИЙ ПРИОРИТЕТ: сканируем ключ на земле — бросаем ВСЕ дела и бежим подбирать
+            local mapItems = PhysicalItems.GetAll()
+            for _, item in pairs(mapItems) do
+                if item and not Entity.IsDormant(item) then
+                    local d = PhysicalItem.GetItem(item)
+                    if d and Ability.GetName(d) == KEY_ITEM_NAME then
+                        local kPos = Entity.GetAbsOrigin(item) or PhysicalItem.GetPosition(item)
+                        if kPos then
+                            local distToKey = GetDistanceSafe(myPos, kPos)
+                            if distToKey > 150 then
+                                _G.HeroMove = "[5loc] Rushing to key (" .. math.floor(distToKey) .. ")"
+                                _G.HeroAction = "[5loc] KEY FOUND! Running!"
+                                if now - lastMove >= 0.3 then
+                                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, kPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                                    lastMove = now
+                                end
+                            else
+                                _G.HeroMove = "[5loc] Picking up key"
+                                _G.HeroAction = "[5loc] Found key!"
+                                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_PICKUP_ITEM, item, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                            end
+                            return
+                        end
+                    end
+                end
+            end
+            -- Атакуем ближайших врагов
+            local nearbyEnemy, _ = FindNearestCombatEnemy(h, myPos, 750, all_npcs)
+            if nearbyEnemy then
+                _G.HeroMove = "[5loc] In combat (follow)"
+                _G.HeroAction = "[5loc] ATK nearby enemy"
+                if nearbyEnemy ~= lastAttackTarget or (now - lastAttackTime) >= 0.5 then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, nearbyEnemy, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                    lastAttackTarget = nearbyEnemy
+                    lastAttackTime = now
+                    lastMove = now
+                end
+                return
+            end
+            -- Следуем позади Медузы (75 юнитов назад от направления движения)
+            local medusa = FindTeammateMedusa()
+            if medusa and Entity.IsAlive(medusa) and not Entity.IsDormant(medusa) then
+                local medusaPos = Entity.GetAbsOrigin(medusa)
+                local wpIdx = math.min(currentWaypoint, #WAYPOINTS)
+                local wpTarget = WAYPOINTS[wpIdx]
+                local dir = (wpTarget - medusaPos):Normalized()
+                local behindPos = medusaPos - dir * 75
+                local distToBehind = GetDistanceSafe(myPos, behindPos)
+                _G.HeroMove = "[5loc] Behind Medusa (" .. math.floor(distToBehind) .. ")"
+                _G.HeroAction = "[5loc] Following"
+                if distToBehind > 50 and now - lastMove >= 0.35 then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, behindPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    lastMove = now
+                end
+                -- Синхронизируем вейпоинт с Медузой
+                local medusaWP = EstimateMedusaWaypoint(medusaPos)
+                if medusaWP > 0 then currentWaypoint = math.max(1, medusaWP) end
+                -- Переход к двери/боссу: если ключ есть и Медуза у двери или на последних WP
+                if keyAvailable and (GetDistanceSafe(medusaPos, DOOR_POS) < 600 or currentWaypoint >= #WAYPOINTS) then
+                    finalPathState = 1
+                end
+            else
+                -- Медуза не видна: идём к вейпоинту самостоятельно
+                local wpPos = WAYPOINTS[math.min(currentWaypoint, #WAYPOINTS)]
+                if now - lastMove >= 0.5 then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, wpPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
+                    lastMove = now
+                end
+                _G.HeroMove = "[5loc] WP" .. currentWaypoint .. " (solo fallback)"
+                _G.HeroAction = "[5loc] Medusa not visible"
+            end
+            return
+        end
+        -- ===== Конец блока Non-Medusa =====
+
         local wpPos = WAYPOINTS[currentWaypoint]
         local distToWp = GetDistanceSafe(myPos, wpPos)
+        _G.HeroMove = "[5loc] Patrol WP" .. currentWaypoint .. "/" .. #WAYPOINTS .. " (" .. math.floor(distToWp) .. ")"
+        _G.HeroAction = "[5loc] Searching enemies"
         local isStash = STASH_WPS[currentWaypoint]
 
         -- ТОЛЬКО если ключ был поднят в нычке: возвращаем топорик на место.
@@ -785,24 +938,15 @@ function script.OnUpdate()
         end
 
         -- Пока рядом есть враги, не двигаем прогрессию маршрута: сначала зачищаем локальную область.
-        local nearbyEnemy, nearbyEnemyDist = FindNearestCombatEnemy(h, myPos, 700, all_npcs)
+        local nearbyEnemy, nearbyEnemyDist = FindNearestCombatEnemy(h, myPos, 750, all_npcs)
         if nearbyEnemy then
-            local enemyPos = Entity.GetAbsOrigin(nearbyEnemy)
-            local standoff = GetAttackStandoff(h)
-
-            if enemyPos and nearbyEnemyDist > standoff then
-                local approachPos = myPos + (enemyPos - myPos):Normalized() * (nearbyEnemyDist - standoff)
-                if now - lastMove >= 0.3 then
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, approachPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                    lastMove = now
-                end
-            else
-                if nearbyEnemy ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, nearbyEnemy, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
-                    lastAttackTarget = nearbyEnemy
-                    lastAttackTime = now
-                    lastMove = now
-                end
+            _G.HeroMove = "[5loc] In combat"
+            _G.HeroAction = "[5loc] ATK nearby enemy"
+            if nearbyEnemy ~= lastAttackTarget or (now - lastAttackTime) >= 0.5 then
+                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, nearbyEnemy, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                lastAttackTarget = nearbyEnemy
+                lastAttackTime = now
+                lastMove = now
             end
             return
         end
@@ -813,23 +957,13 @@ function script.OnUpdate()
         -- На маршруте сначала бьем врагов по линии движения и только потом наступаем на вейпоинт.
         local pathTarget = FindPathTarget(h, myPos, wpPos, all_npcs)
         if pathTarget then
-            local targetPos = Entity.GetAbsOrigin(pathTarget)
-            local distToTarget = GetDistanceSafe(myPos, targetPos)
-            local standoff = GetAttackStandoff(h)
-
-            if distToTarget > standoff then
-                local approachPos = myPos + (targetPos - myPos):Normalized() * (distToTarget - standoff)
-                if now - lastMove >= 0.35 then
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, approachPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                    lastMove = now
-                end
-            else
-                if pathTarget ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, pathTarget, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
-                    lastAttackTarget = pathTarget
-                    lastAttackTime = now
-                    lastMove = now
-                end
+            _G.HeroMove = "[5loc] Engaging path enemy"
+            _G.HeroAction = "[5loc] ATK path enemy"
+            if pathTarget ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
+                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, pathTarget, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                lastAttackTarget = pathTarget
+                lastAttackTime = now
+                lastMove = now
             end
             return
         end
@@ -837,29 +971,17 @@ function script.OnUpdate()
         -- Если у целевого вейпоинта есть враг, но он не попал в pathTarget,
         -- все равно идем/бьем его, чтобы не зависать на месте с блокировкой движения.
         if mustClearBeforeMove and enemyNearWp then
-            local enemyPos = Entity.GetAbsOrigin(enemyNearWp)
-            local standoff = GetAttackStandoff(h)
-            local distToEnemy = enemyPos and GetDistanceSafe(myPos, enemyPos) or 0
-
-            if enemyPos and distToEnemy > standoff then
-                local approachPos = myPos + (enemyPos - myPos):Normalized() * (distToEnemy - standoff)
-                if now - lastMove >= 0.3 then
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, approachPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                    lastMove = now
-                end
-            else
-                if enemyNearWp ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
-                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, enemyNearWp, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
-                    lastAttackTarget = enemyNearWp
-                    lastAttackTime = now
-                    lastMove = now
-                end
+            if enemyNearWp ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
+                Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, enemyNearWp, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                lastAttackTarget = enemyNearWp
+                lastAttackTime = now
+                lastMove = now
             end
             return
         end
 
         -- Если это нычка и есть ключ - пропускаем
-        if keyInInv and isStash then
+        if keyAvailable and isStash then
             if distToWp < 600 and not mustClearBeforeMove then 
                 currentWaypoint = currentWaypoint + 1
                 isWaitingInStash = false
@@ -870,6 +992,8 @@ function script.OnUpdate()
 
         -- Входим в логику нычки
         if isStash and distToWp < 550 then
+            _G.HeroMove = "[5loc] At stash WP" .. currentWaypoint
+            _G.HeroAction = "[5loc] Stash WP" .. currentWaypoint .. " (cutting trees)"
             isWaitingInStash = true
             if stashArriveTime == 0 then stashArriveTime = now end
 
@@ -891,25 +1015,16 @@ function script.OnUpdate()
 
             local toolReady = activeTool and (not isUsingBackpackQB or (now - swapTime >= 6.0))
             local readyTool = toolReady and activeTool or nil
-            local stashEnemy, _ = FindNearestCombatEnemy(h, myPos, 400, all_npcs)
+            -- На нычке 4 (WP 35) проверяем врагов в радиусе 800, на остальных — 400.
+            -- Рубка деревьев начинается в любой нычке ТОЛЬКО если врагов нет.
+            local stashCheckRadius = (currentWaypoint == 35) and 800 or 400
+            local stashEnemy, _ = FindNearestCombatEnemy(h, myPos, stashCheckRadius, all_npcs)
             if stashEnemy then
-                local stashEnemyPos = Entity.GetAbsOrigin(stashEnemy)
-                local standoff = GetAttackStandoff(h)
-                local distToEnemy = stashEnemyPos and GetDistanceSafe(myPos, stashEnemyPos) or 0
-
-                if stashEnemyPos and distToEnemy > standoff then
-                    local approachPos = myPos + (stashEnemyPos - myPos):Normalized() * (distToEnemy - standoff)
-                    if now - lastMove >= 0.3 then
-                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, approachPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
-                        lastMove = now
-                    end
-                else
-                    if stashEnemy ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
-                        Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, stashEnemy, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
-                        lastAttackTarget = stashEnemy
-                        lastAttackTime = now
-                        lastMove = now
-                    end
+                if stashEnemy ~= lastAttackTarget or (now - lastAttackTime) >= 1.5 then
+                    Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET, stashEnemy, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h, false, true)
+                    lastAttackTarget = stashEnemy
+                    lastAttackTime = now
+                    lastMove = now
                 end
                 return
             end
@@ -948,6 +1063,13 @@ function script.OnUpdate()
             end
 
             if targetKey then
+                -- В команде Медуза не подбирает ключ — его подберёт тиммейт
+                if IsMedusa(h) and HasTeammate() then
+                    isWaitingInStash = false
+                    stashArriveTime = 0
+                    currentWaypoint = currentWaypoint + 1
+                    return
+                end
                 local kPos = Entity.GetAbsOrigin(targetKey) or PhysicalItem.GetPosition(targetKey)
                 if GetDistanceSafe(myPos, kPos) > 150 then
                     if now - lastMove >= 0.3 then
@@ -974,11 +1096,11 @@ function script.OnUpdate()
             return
         end
 
-        local arrivalDist = (currentWaypoint == 23) and 40 or 180
+        local arrivalDist = (currentWaypoint == 36) and 40 or 180
 
         if distToWp < arrivalDist and not mustClearBeforeMove then
-            -- Вейпоинт 23: ждём 0.5с на точке
-            if currentWaypoint == 23 then
+            -- Вейпоинт 36: ждём 0.5с на точке (пиксель в пиксель)
+            if currentWaypoint == 36 then
                 if wp23ArriveTime == 0 then
                     wp23ArriveTime = now
                 end
@@ -992,10 +1114,22 @@ function script.OnUpdate()
                 wp23ArriveTime = 0
             end
 
+            -- Non-Medusa с тиммейтом: не может обогнать Медузу по вейпоинтам
+            if HasTeammate() and not IsMedusa(h) then
+                local medusa = FindTeammateMedusa()
+                if medusa and Entity.IsAlive(medusa) and not Entity.IsDormant(medusa) then
+                    local medusaPos = Entity.GetAbsOrigin(medusa)
+                    local medusaWP = EstimateMedusaWaypoint(medusaPos)
+                    if currentWaypoint + 1 > medusaWP then
+                        return
+                    end
+                end
+            end
+
             isWaitingInStash = false
             stashArriveTime = 0
             if currentWaypoint == #WAYPOINTS then
-                if keyInInv then finalPathState = 1 else currentWaypoint = 1 end
+                if keyAvailable then finalPathState = 1 else currentWaypoint = 1 end
             else 
                 currentWaypoint = currentWaypoint + 1 
             end
@@ -1016,6 +1150,8 @@ function script.OnUpdate()
 
     elseif finalPathState == 1 then
         local distToDoor = GetDistanceSafe(myPos, DOOR_POS)
+        _G.HeroMove = "[5loc] Moving to door (" .. math.floor(distToDoor) .. ")"
+        _G.HeroAction = "[5loc] Go to door"
         if distToDoor > 100 then
             if now - lastMove >= 0.35 then
                 Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, DOOR_POS, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
@@ -1028,8 +1164,11 @@ function script.OnUpdate()
             end
         end
     elseif finalPathState == 2 then
+        local distToBoss = GetDistanceSafe(myPos, BOSS_POS)
+        _G.HeroMove = "[5loc] Boss arena (" .. math.floor(distToBoss) .. ")"
+        _G.HeroAction = "[5loc] Waiting for boss"
         
-        if GetDistanceSafe(myPos, BOSS_POS) > 250 then
+        if distToBoss > 250 then
             if now - lastMove >= 0.35 then
                 Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, BOSS_POS, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                 lastMove = now
@@ -1041,6 +1180,27 @@ function script.OnUpdate()
                 Player.PrepareUnitOrders(pMe, Enum.UnitOrder.DOTA_UNIT_ORDER_STOP, nil, Vector(0,0,0), nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, h)
                 lastMove = now
             end
+        end
+    end
+end
+
+function script.OnDraw()
+    if _G.GlobalPhase ~= 7 then return end
+    local h = Heroes.GetLocal()
+    if not h or not Entity.IsAlive(h) then return end
+    local pos = Entity.GetAbsOrigin(h)
+    if not pos then return end
+    local headPos = pos + Vector(0, 0, 200)
+    local screenPos, vis = Render.WorldToScreen(headPos)
+    if vis and screenPos then
+        local moveColor = Color(100, 200, 255, 255)
+        local actColor  = Color(0, 255, 128, 255)
+        if _G.HeroMove then
+            Render.Text(_hudFont, 18, _G.HeroMove, screenPos, moveColor)
+        end
+        if _G.HeroAction then
+            local line2 = screenPos + Vector(0, 22, 0)
+            Render.Text(_hudFont, 18, _G.HeroAction, line2, actColor)
         end
     end
 end

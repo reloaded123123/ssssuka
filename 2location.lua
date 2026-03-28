@@ -14,18 +14,75 @@ local BOSS_NAME = "npc_dota_boss_undying"
 local WAYPOINTS_L2 = {
     Vector(-11002, -10304, 512), Vector(-10434, -10059, 512), Vector(-9184, -10156, 512),
     Vector(-8327, -10081, 512), Vector(-7598, -9371, 512), Vector(-8698, -8854, 512),
-    Vector(-7591, -8625, 512), Vector(-8163, -7628, 512), Vector(-8712, -6994, 512),
+    Vector(-7591, -8625, 512), Vector(-7271, -8665, 512), Vector(-9169, -8417, 512), Vector(-8163, -7628, 512), Vector(-8712, -6994, 512),
     Vector(-9806, -5593, 512), Vector(-10616, -5822, 512), Vector(-11810, -5379, 512),
     Vector(-12805, -5235, 512), Vector(-11910, -6782, 512), Vector(-12893, -7878, 384),
     Vector(-13827, -7388, 384), Vector(-14352, -4895, 384), Vector(-15090, -6866, 384),
     Vector(-15256, -5172, 384), Vector(-15533, -7794, 384), 
     Vector(-15552, -8385, 512), Vector(-10962, -8312, 512),
-    Vector(-10036, -7284, 512), -- 23
-    Vector(-8277, -4899, 384)   -- 24 (Босс)
+    Vector(-10036, -7284, 512), -- 24
+    Vector(-8277, -4899, 384)   -- 26 (Босс)
 }
 
 local PLATE_POS = Vector(-14006, -4138, 512)
-local PLATE_WP = 13
+local PLATE_WP = 15
+
+local hasTeammateCache = nil
+local lastTeammateCheck = 0
+
+local function HasTeammate()
+    local now = os.clock()
+    if hasTeammateCache ~= nil and (now - lastTeammateCheck) < 10.0 then
+        return hasTeammateCache
+    end
+    lastTeammateCheck = now
+    local me = Heroes.GetLocal()
+    if not me then hasTeammateCache = false; return false end
+    local allHeroes = Heroes.GetAll()
+    for i = 1, #allHeroes do
+        local hero = allHeroes[i]
+        if hero and hero ~= me and Entity.IsSameTeam(me, hero) and not NPC.IsIllusion(hero) then
+            hasTeammateCache = true
+            return true
+        end
+    end
+    hasTeammateCache = false
+    return false
+end
+
+local function IsMedusa(h)
+    return h and NPC.GetUnitName(h) == "npc_dota_hero_medusa"
+end
+
+local function FindTeammateMedusa()
+    local me = Heroes.GetLocal()
+    if not me then return nil end
+    local allHeroes = Heroes.GetAll()
+    for i = 1, #allHeroes do
+        local hero = allHeroes[i]
+        if hero and hero ~= me and Entity.IsSameTeam(me, hero) and not NPC.IsIllusion(hero) then
+            if NPC.GetUnitName(hero) == "npc_dota_hero_medusa" then
+                return hero
+            end
+        end
+    end
+    return nil
+end
+
+local function EstimateMedusaWaypoint(medusaPos)
+    if not medusaPos then return #WAYPOINTS_L2 + 1 end
+    local bestIdx = 1
+    local bestDist = 999999
+    for i = 1, #WAYPOINTS_L2 do
+        local d = (medusaPos - WAYPOINTS_L2[i]):Length2D()
+        if d < bestDist then
+            bestDist = d
+            bestIdx = i
+        end
+    end
+    if bestDist < 250 then return bestIdx + 1 end
+    return bestIdx
+end
 
 local currentWP = 1
 local lastMoveTime = 0
@@ -178,6 +235,24 @@ function script.OnUpdate()
     end
 
     -- 3. ДВИЖЕНИЕ
+    -- Non-Medusa в команде: следует позади Медузы (75 юнитов назад)
+    if HasTeammate() and not IsMedusa(myHero) then
+        local medusa = FindTeammateMedusa()
+        if medusa and Entity.IsAlive(medusa) and not Entity.IsDormant(medusa) then
+            local medusaPos = Entity.GetAbsOrigin(medusa)
+            local dir = (targetPos - medusaPos):Normalized()
+            local behindPos = medusaPos - dir * 75
+            local distToBehind = (myPos - behindPos):Length2D()
+            if distToBehind > 50 and now - lastMoveTime > 0.3 then
+                Player.PrepareUnitOrders(myPlayer, Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION, nil, behindPos, nil, Enum.PlayerOrderIssuer.DOTA_ORDER_ISSUER_PASSED_UNIT_ONLY, myHero)
+                lastMoveTime = now
+            end
+            local medusaWP = EstimateMedusaWaypoint(medusaPos)
+            if medusaWP > 0 then currentWP = math.max(1, medusaWP) end
+            return
+        end
+    end
+
     local distToWP = (myPos - targetPos):Length2D()
 
     if distToWP > 100 then
@@ -190,6 +265,17 @@ function script.OnUpdate()
         if currentWP == PLATE_WP and not plateDone then
             onPlateStep = true
             return
+        end
+        -- Non-Medusa не может обогнать Медузу по вейпоинтам
+        if HasTeammate() and not IsMedusa(myHero) then
+            local medusa = FindTeammateMedusa()
+            if medusa and Entity.IsAlive(medusa) and not Entity.IsDormant(medusa) then
+                local medusaPos = Entity.GetAbsOrigin(medusa)
+                local medusaWP = EstimateMedusaWaypoint(medusaPos)
+                if currentWP + 1 > medusaWP then
+                    return
+                end
+            end
         end
         currentWP = currentWP + 1
     end
